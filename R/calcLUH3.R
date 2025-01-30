@@ -24,6 +24,7 @@ calcLUH3 <- function() {
   stopifnot(length(missingCells) == 775)
   x <- magclass::add_columns(x, missingCells, dim = 1, fill = 0)
   stopifnot(setequal(clustermap$cell, getItems(x, 1)))
+  x <- x[clustermap$cell, , ]
 
   # match output of calcLUH2v2 - might want to delete this eventually?
   names(dimnames(x)) <- c("x.y.iso", "t", "landuse")
