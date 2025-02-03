@@ -1,7 +1,6 @@
-calcLUH3 <- function() {
-  years <- seq(1965, 2010, 5)
-
+calcLUH3 <- function(years = seq(1965, 2010, 5)) {
   raw <- readSource("LUH3", "states", years)
+  stopifnot(terra::units(raw) == "Mha")
   raw <- raw[[grep("pltns", names(raw), invert = TRUE)]] # skip plantations (forestry) for now
 
   x <- as.magpie(raw)
