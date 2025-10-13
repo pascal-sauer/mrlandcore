@@ -15,7 +15,10 @@ calcForestArea <- function(selectyears = "past_til2020") {
 
   years <- sort(magpiesets::findset(selectyears, noset = "original"))
 
-  forest   <- readSource("FAO_FRA2015", "fac")[, , c("Forest", "NatFor", "PrimFor", "NatRegFor", "PlantFor")]
+  forest <- readSource("FAO_FRA2015", "fac")[, , c("Forest", "NatFor", "PrimFor", "NatRegFor", "PlantFor")]
+
+  ### we assume that primary forest growth is not possible, so replace it
+  forest <- toolReplaceExpansion(forest, "PrimFor", "NatRegFor", warnThreshold = 35)
 
   # Plantation data is bit strange in FRA2015, we update this with FRA2020 data (but only till 2015)
   # We do this because FRA2020 has stopped reporting separately on primf and secdf
@@ -40,8 +43,8 @@ calcForestArea <- function(selectyears = "past_til2020") {
   # (sum of nat.reg.forest and planted forest)
   forest[, , "Forest"]   <- forest[, , "NatFor"] + forest[, , "PlantFor"]
 
-  forest   <- time_interpolate(forest, interpolated_year = years, integrate_interpolated_years = TRUE,
-                               extrapolation_type = "constant")[, years, ]
+  forest <- time_interpolate(forest, interpolated_year = years, integrate_interpolated_years = TRUE,
+                             extrapolation_type = "constant")[, years, ]
   vcat(verbosity = 3, "Forest is interpolated for missing years and held constant for the period before FAO starts")
 
   ### fix know issues
@@ -52,9 +55,6 @@ calcForestArea <- function(selectyears = "past_til2020") {
   forest["PSE", , "PlantFor"]   <- 2 / 3 * forest["PSE", , "Forest"]
   forest["PSE", , "NatRegFor"]  <- 1 / 3 * forest["PSE", , "Forest"]
 
-  ### we assume that primary forest growth is not possible, so replace it
-  forest <- toolReplaceExpansion(forest, "PrimFor", "NatRegFor", warnThreshold = 35)
-
   ### fixing inconsistencies assuming total forest areas and shares of subcategories are reported correctly
 
   forestSumSub                  <- dimSums(forest[, , c("NatFor", "PlantFor")], dim = 3)
@@ -64,8 +64,13 @@ calcForestArea <- function(selectyears = "past_til2020") {
                                                    forestSumSub * setNames(forest[, , "Forest"], NULL))$x
 
   forestSumSubSub               <- dimSums(forest[, , c("PrimFor", "NatRegFor")], dim = 3)
+
+  # TODO this is introducing primf growth
   forest[, , "PrimFor"]         <- toolNAreplace(forest[, , "PrimFor"] /
                                                    forestSumSubSub * setNames(forest[, , "NatFor"], NULL))$x
+  ### we assume that primary forest growth is not possible, so replace it
+  forest <- toolReplaceExpansion(forest, "PrimFor", "NatRegFor", warnThreshold = 35)
+
   forest[, , "NatRegFor"]       <- toolNAreplace(forest[, , "NatRegFor"] /
                                                    forestSumSubSub * setNames(forest[, , "NatFor"], NULL))$x
 
@@ -82,7 +87,7 @@ calcForestArea <- function(selectyears = "past_til2020") {
     tmp <- secondaryForest
     tmp[tmp > 0] <- 0
     tmp <- dimSums(tmp, dim = 1)
-    vcat(verbosity = 2, paste("Mismatch of FAO forestry and Hurtt secondary forest:",
+    vcat(verbosity = 2, paste("Mismatch of FAO forestry and LUH secondary forest:",
                               paste(paste(getYears(tmp), round(tmp, 0), "Mha, "), collapse = " "), ". cut off."))
     secondaryForest[secondaryForest < 0] <- 0
   }
@@ -96,8 +101,8 @@ calcForestArea <- function(selectyears = "past_til2020") {
   luhNatForestShare <- luhForest[, , c("PrimFor", "NatRegFor")] / dimSums(luhForest[, , c("PrimFor", "NatRegFor")],
                                                                           dim = 3)
 
-  miss         <- where(round(dimSums(forest[, , c("NatFor", "PlantFor")], dim = 3), 6) !=
-                          round(forest[, , "Forest"], 6))$true$regions
+  miss <- where(round(dimSums(forest[, , c("NatFor", "PlantFor")], dim = 3), 6) !=
+                  round(forest[, , "Forest"], 6))$true$regions
 
   if (length(miss) > 0) {
     forest[miss, , c("PlantFor", "PrimFor", "NatRegFor")] <- luhForestShare[miss, , ] *
@@ -105,10 +110,12 @@ calcForestArea <- function(selectyears = "past_til2020") {
     forest[miss, , "NatFor"] <- setNames(forest[miss, , "PrimFor"] + forest[miss, , "NatRegFor"], NULL)
   }
 
-  miss         <- where(round(dimSums(forest[, , c("PrimFor", "NatRegFor")], dim = 3), 6) !=
-                          round(forest[, , "NatFor"], 6))$true$regions
+  miss <- where(round(dimSums(forest[, , c("PrimFor", "NatRegFor")], dim = 3), 6) !=
+                  round(forest[, , "NatFor"], 6))$true$regions
   if (length(miss > 0)) {
+    # TODO introducing primf growth here
     forest[miss, , c("PrimFor", "NatRegFor")] <- luhNatForestShare[miss, , ] * setNames(forest[miss, , "NatFor"], NULL)
+    forest <- toolReplaceExpansion(forest, "PrimFor", "NatRegFor", warnThreshold = 35)
   }
 
   ####################################
@@ -125,6 +132,5 @@ calcForestArea <- function(selectyears = "past_til2020") {
   return(list(x = out,
               weight = NULL,
               unit = "Mha",
-              description = "Forest area and its subcategories")
-  )
+              description = "Forest area and its subcategories"))
 }
