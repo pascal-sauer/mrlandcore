@@ -86,7 +86,7 @@ calcForestArea <- function(selectyears = "past_til2020") {
   forestry <- luh[, , "secdf"] - secondaryForest
 
   luhForest <- mbind(setNames(forestry, "PlantFor"),
-                     setNames(luh[, , c("primf")], "PrimFor"),
+                     setNames(luh[, , "primf"], "PrimFor"),
                      setNames(secondaryForest, "NatRegFor")) + 10^-10
   # 10^-10 added to allow share estimation even under missing area information
   luhForestShare <- luhForest / dimSums(luhForest, dim = 3)
@@ -122,6 +122,6 @@ calcForestArea <- function(selectyears = "past_til2020") {
   return(list(x = out,
               weight = NULL,
               unit = "Mha",
-              description = "Forest are and its subcategories")
+              description = "Forest area and its subcategories")
   )
 }
