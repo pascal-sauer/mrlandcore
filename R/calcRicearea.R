@@ -3,7 +3,6 @@
 #'              physical rice areas reported by FAOSTAT.
 #'
 #' @param cellular   If TRUE: calculates cellular rice area
-#' @param cells      Switch between "magpiecell" (59199) and "lpjcell" (67420)
 #' @param share      If TRUE: non-flooded share is returned.
 #'                   If FALSE: rice area (flooded, non-flooded, total) in Mha is returned
 #'
@@ -14,25 +13,25 @@
 #' @importFrom magpiesets findset
 #' @importFrom withr local_options
 
-calcRicearea <- function(cellular = FALSE, cells = "lpjcell", share = TRUE) {
+calcRicearea <- function(cellular = FALSE, share = TRUE) {
 
   local_options(magclass_sizeLimit = 1e+12)
-
-  selectyears <- findset("past")
 
   ############################################
   ### Ricearea and shares on country level ###
   ############################################
 
   # Country-level LUH flooded areas
-  floodedLUHiso  <- collapseNames(calcOutput("LUH2v2", landuse_types = "flooded",
-                                             cells = cells, aggregate = FALSE, irrigation = TRUE,
-                                             cellular = FALSE, selectyears = "past"))
+  floodedLUHiso  <- collapseNames(calcOutput("LUH3flood", aggregate = FALSE))
 
   # FAO rice areas (physical to be comparable with LUH)
   riceareaFAOiso <- collapseNames(calcOutput("Croparea", sectoral = "kcr", physical = TRUE,
-                                             cellular = FALSE, cells = "magpicell", irrigation = FALSE,
-                                             aggregate = FALSE)[, selectyears, "rice_pro"])
+                                             cellular = FALSE, irrigation = FALSE,
+                                             aggregate = FALSE)[, , "rice_pro"])
+
+  commonYears     <- intersect(getYears(riceareaFAOiso), getYears(floodedLUHiso))
+  floodedLUHiso   <- floodedLUHiso[, commonYears, ]
+  riceareaFAOiso  <- riceareaFAOiso[, commonYears, ]
 
   # Country-level rice area
   ricearea <- floodedLUHiso
@@ -73,7 +72,6 @@ calcRicearea <- function(cellular = FALSE, cells = "lpjcell", share = TRUE) {
       out         <- collapseNames(mbind(ricearea, floodedRicearea, nonfloodedRicearea))
       unit        <- "Mha"
       description <- "Physical rice area on country level"
-
     }
 
   } else {
@@ -82,21 +80,15 @@ calcRicearea <- function(cellular = FALSE, cells = "lpjcell", share = TRUE) {
     ############################################
 
     # Cellular LUH flooded areas
-    floodedLUH <- collapseNames(calcOutput("LUH2v2", landuse_types = "flooded",
-                                           cells = cells, cellular = TRUE, irrigation = TRUE,
-                                           selectyears = "past", aggregate = FALSE))
+    floodedLUH <- collapseNames(calcOutput("LUH3flood", aggregate = FALSE, cellular = TRUE))
+
+    commonYears <- intersect(getYears(nonriceShr), getYears(floodedLUH))
+    floodedLUH  <- floodedLUH[, commonYears, ]
+    nonriceShr  <- nonriceShr[, commonYears, ]
 
     # Correction for flooded non-rice areas (floodedLUHiso > riceareaFAOiso)
-    if (cells == "magpiecell") {
-      commonCountries <- intersect(getItems(nonriceShr, dim = "country"), getItems(floodedLUH, dim = "country"))
-      ricearea   <- floodedLUH * toolIso2CellCountries(nonriceShr, cells = cells)
-    } else if (cells == "lpjcell") {
-      commonCountries <- intersect(getItems(nonriceShr, dim = "country"), getItems(floodedLUH, dim = "iso"))
-      ricearea <- floodedLUH * nonriceShr[commonCountries, , ]
-    } else {
-      stop("When cellular==TRUE in calcRicearea: please select number of cells
-            (magpiecell or lpjcell) via cells argument")
-    }
+    commonCountries <- intersect(getItems(nonriceShr, dim = "country"), getItems(floodedLUH, dim = "iso"))
+    ricearea <- floodedLUH * nonriceShr[commonCountries, , ]
 
     # Correction for aerobic (non-paddy) rice (floodedLUHiso < riceareaFAOiso)
     floodedRicearea    <- ricearea * floodedShr[commonCountries, , ]
