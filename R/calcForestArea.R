@@ -52,6 +52,9 @@ calcForestArea <- function(selectyears = "past_til2020") {
   forest["PSE", , "PlantFor"]   <- 2 / 3 * forest["PSE", , "Forest"]
   forest["PSE", , "NatRegFor"]  <- 1 / 3 * forest["PSE", , "Forest"]
 
+  ### we assume that primary forest growth is not possible, so replace it
+  forest <- toolReplaceExpansion(forest, "PrimFor", "NatRegFor", warnThreshold = 35)
+
   ### fixing inconsistencies assuming total forest areas and shares of subcategories are reported correctly
 
   forestSumSub                  <- dimSums(forest[, , c("NatFor", "PlantFor")], dim = 3)
