@@ -13,7 +13,7 @@
 
 calcForestArea <- function(selectyears = "past_til2020") {
 
-  years <- sort(findset(selectyears, noset = "original"))
+  years <- sort(magpiesets::findset(selectyears, noset = "original"))
 
   forest   <- readSource("FAO_FRA2015", "fac")[, , c("Forest", "NatFor", "PrimFor", "NatRegFor", "PlantFor")]
 
@@ -70,7 +70,7 @@ calcForestArea <- function(selectyears = "past_til2020") {
   # fixing missing data on split between PrimFor (primforest), NatRegFor (secdforest)
   # and PlantFor (forestry) with LUH data
 
-  luh <- calcOutput("LUH3", landuseTypes = "LUH3", irrigation = FALSE, yrs = selectyears,
+  luh <- calcOutput("LUH3", landuseTypes = "LUH3", irrigation = FALSE, yrs = years,
                     cellular = FALSE, aggregate = FALSE)[, , c("primf", "secdf")]
   forest <- forest[, getYears(luh), ]
 
