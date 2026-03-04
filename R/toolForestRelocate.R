@@ -12,42 +12,52 @@
 #' @importFrom nleqslv nleqslv
 #'
 #' @export
-toolForestRelocate <- function(lu, luCountry, natTarget, vegC) { # nolint
+toolForestRelocate <- function(lu, luCountry, natTarget, vegC) { # nolint: cyclocomp_linter.
 
   .arrayReduce <- function(x) {
     # drop dimensions but keep time dimension
-    if (dim(x)[3] != 1) stop("array2D only works with a single data dimension!")
-    if (dim(x)[1] == 1) return(array(x, dim = dim(x)[2], dimnames = dimnames(x)[2]))
+    if (dim(x)[3] != 1) {
+      stop("array2D only works with a single data dimension!")
+    }
+    if (dim(x)[1] == 1) {
+      return(array(x, dim = dim(x)[2], dimnames = dimnames(x)[2]))
+    }
     return(array(x, dim = dim(x)[1:2], dimnames = dimnames(x)[1:2]))
   }
 
   forests <- c("primforest", "secdforest", "forestry")
   nature  <- c(forests, "other")
 
-  if (round(sum(lu) - sum(luCountry), 4) != 0) warning("lu and luCountry differ in total land area")
-  if (round(sum(lu[, , nature]) - sum(natTarget), 4) != 0) warning("lu and natTarget differ in total land area")
+  if (round(sum(lu) - sum(luCountry), 4) != 0) {
+    warning("lu and luCountry differ in total land area")
+  }
+  if (round(sum(lu[, , nature]) - sum(natTarget), 4) != 0) {
+    warning("lu and natTarget differ in total land area")
+  }
 
   # store cell area to check later that it remains constant
   luCellArea <- setItems(dimSums(lu[, 1, ], dim = 3), dim = 2, NULL)
 
   # reduce, if necessary to FAO
-  reduce <- increase <- round(natTarget - luCountry[, , nature], 8)
-  reduce[reduce > 0]     <- 0
+  increase <- round(natTarget - luCountry[, , nature], 8)
+  reduce <- increase
+  reduce[reduce > 0] <- 0
   increase[increase < 0] <- 0
 
   # grep land areas dependent on vegetation carbon density
-  if (is.null(getYears(vegC))) getYears(vegC) <- getYears(natTarget)
+  if (is.null(getYears(vegC))) {
+    getYears(vegC) <- getYears(natTarget)
+  }
 
   # weight function to determine correct cellweights for area removal
   findweight <- function(p, cellarea, isoreduction, cellweight) {
-    rowSums(cellarea * (1 - (1 - cellweight)^p)) + isoreduction + 10^-10
+    return(rowSums(cellarea * (1 - (1 - cellweight)^p)) + isoreduction + 10^-10)
   }
 
   # loop over countries
   countries <- getItems(lu, dim = "iso")
   l <- list()
   for (iso in countries) {
-
     l[[iso]] <- lu[iso, , ]
     allocate <- setNames(l[[iso]][, , 1] * 0, NULL)
 
@@ -62,7 +72,6 @@ toolForestRelocate <- function(lu, luCountry, natTarget, vegC) { # nolint
 
     # loop over all land use categories, that have to be reallocated
     for (cat in nature) {
-
       catreduce <- .arrayReduce(reduce[iso, , cat])
 
       # check if area has to be cleared
@@ -112,7 +121,6 @@ toolForestRelocate <- function(lu, luCountry, natTarget, vegC) { # nolint
                                      "Iteration limit exceeded")
 
               if (msg %in% criticalWarnings) {
-
                 vcat(2, paste0("No solution for ", iso, ", ", cat, ", ", msg, ".",
                                "Restart from higher intial guess."))
 
@@ -122,12 +130,15 @@ toolForestRelocate <- function(lu, luCountry, natTarget, vegC) { # nolint
                                 control = list(allowSingular = TRUE))
                 p[ti] <- sol$x
                 msg   <- sol$message
-                if (msg %in% criticalWarnings) warning("No solution for ", iso, ", ", cat, ", ", msg, ".")
-
+                if (msg %in% criticalWarnings) {
+                  warning("No solution for ", iso, ", ", cat, ", ", msg, ".")
+                }
               }
             }
 
-            if (any(p[t] < 0)) vcat(1, "Negative weight of p=", p, " for: ", cat, " ", iso, " ", t)
+            if (any(p[t] < 0)) {
+              vcat(1, "Negative weight of p=", p, " for: ", cat, " ", iso, " ", t)
+            }
             remove <- l[[iso]][, , cat] * (1 - (1 - as.magpie(cellweight, spatial = 2))^as.magpie(p))
             remove[, !t, ] <- 0
           } else {
@@ -150,10 +161,9 @@ toolForestRelocate <- function(lu, luCountry, natTarget, vegC) { # nolint
     # relocate other land to areas with low vegetation carbon density
     # check if other land has to be filled
     if (any(catincrease != 0)) {
+      t <- catincrease != 0
 
-      t <- (catincrease != 0)
-
-      cellweight <- (1 - 10^-16 - vegCN)
+      cellweight <- 1 - 10^-16 - vegCN
 
       # check for one cell countries
       if (dim(l[[iso]])[1] == 1) {
@@ -169,20 +179,21 @@ toolForestRelocate <- function(lu, luCountry, natTarget, vegC) { # nolint
         names(p) <- rownames(cellweight)
 
         for (ti in getYears(l[[iso]][, t, ])) {
-
           sol  <- nleqslv(rep(1, nyears(l[[iso]][, ti, ])), findweight,
                           cellarea = t(.arrayReduce(allocate[, ti, ])),
                           isoreduction = -catincrease[ti], cellweight = cellweight[ti, ])
           p[ti] <- sol$x
         }
 
-        if (any(p[t] < 0)) vcat(1, "Negative weight of p=", p, " for: ", cat, " ", iso, " ", t)
+        if (any(p[t] < 0)) {
+          vcat(1, "Negative weight of p=", p, " for: ", cat, " ", iso, " ", t)
+        }
         add <- allocate * (1 - (1 - as.magpie(cellweight, spatial = 2))^as.magpie(p))
       }
       add[, !t, ] <- 0
 
       # move area from "allocate" area to other land
-      l[[iso]][, , "other"]    <- l[[iso]][, , "other"]    + add
+      l[[iso]][, , "other"] <- l[[iso]][, , "other"] + add
       allocate <- allocate - add
     }
 
@@ -194,7 +205,7 @@ toolForestRelocate <- function(lu, luCountry, natTarget, vegC) { # nolint
     if (any(catincrease != 0)) {
       # move area from "allocate" area to forests
       forestsShare <- catincrease / (setNames(dimSums(catincrease, dim = 3), NULL) + 10^-10)
-      l[[iso]][, , forests] <- (l[[iso]][, , forests] + setCells(forestsShare, "GLO") * allocate)
+      l[[iso]][, , forests] <- l[[iso]][, , forests] + setCells(forestsShare, "GLO") * allocate
       allocate[, , ] <- 0
     }
 
@@ -205,10 +216,9 @@ toolForestRelocate <- function(lu, luCountry, natTarget, vegC) { # nolint
     error <- abs(dimSums(l[[iso]][, , nature], dim = 1) - natTarget[iso, , ])
     if (max(error) >= 0.001) {
       landuse <- getItems(error, dim = 3)
-      luMissmatches <- paste(landuse[unique(which(error >= 0.001, arr.ind = TRUE)[, 3])], collapse = ", ")
-      warning("Missmatch (", round(max(error), 3), " Mha) in ", iso, " for ", luMissmatches)
+      luMismatches <- paste(landuse[unique(which(error >= 0.001, arr.ind = TRUE)[, 3])], collapse = ", ")
+      warning("Mismatch (", round(max(error), 3), " Mha) in ", iso, " for ", luMismatches)
     }
-
   }
 
   lu[names(l), , ] <- mbind(l)
