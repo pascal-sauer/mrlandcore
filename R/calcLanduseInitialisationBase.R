@@ -93,7 +93,14 @@ calcLanduseInitialisationBase <- function(cells = "lpjcell", selectyears = "past
   cyears <- intersect(getYears(vegC, as.integer = TRUE), selectyears)
   vegC <- vegC[, cyears, ]
 
+  stopifnot(mrdownscale::toolMaxExpansion(lu, "primforest") == 0)
+  stopifnot(mrdownscale::toolMaxExpansion(luCountry, "primforest") == 0)
+  natTarget <- mrdownscale::toolReplaceExpansion(natTarget, "primforest", "secdforest")
+  stopifnot(mrdownscale::toolMaxExpansion(natTarget, "primforest") == 0)
+
   lu2 <- toolForestRelocate(lu = lu, luCountry = luCountry, natTarget = natTarget, vegC = vegC)
+
+  stopifnot(mrdownscale::toolMaxExpansion(lu2, "primforest") == 0)
 
   .splitOther <- function(lu, luh) {
     # split other land in primary and secondary other land
