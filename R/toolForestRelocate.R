@@ -88,11 +88,11 @@ toolForestRelocate <- function(lu, luCountry, natTarget, vegC) { # nolint: cyclo
           if (cat == "other") {
             cellweight <- vegCN
           } else {
-            cellweight <- (1 - 10^-16 - vegCN)
+            cellweight <- 1 - 10^-16 - vegCN
           }
 
           # check for edge case in which all land of that category must be removed and treat it separately
-          fullremoval <- (round(dimSums(l[[iso]], dim = 1)[, , cat] + as.magpie(catreduce), 3) == 0)
+          fullremoval <- round(dimSums(l[[iso]], dim = 1)[, , cat] + as.magpie(catreduce), 3) == 0
           if (any(fullremoval)) {
             allocate[, fullremoval, ] <- (allocate[, fullremoval, ]
                                           + setNames(l[[iso]][, fullremoval, cat], NULL))
@@ -100,7 +100,7 @@ toolForestRelocate <- function(lu, luCountry, natTarget, vegC) { # nolint: cyclo
             catreduce[fullremoval] <- 0
           }
 
-          t <- (catreduce != 0)
+          t <- catreduce != 0
           if (any(t)) {
             # determine correct parameter for weights for multiple cell countries
             # (weights below zero indicate an error)
@@ -109,7 +109,6 @@ toolForestRelocate <- function(lu, luCountry, natTarget, vegC) { # nolint: cyclo
             names(p) <- rownames(cellweight)
 
             for (ti in getYears(l[[iso]][, t, ])) {
-
               sol  <- nleqslv(rep(1, nyears(l[[iso]][, ti, ])), findweight,
                               cellarea = t(.arrayReduce(l[[iso]][, ti, cat])),
                               isoreduction = catreduce[ti], cellweight = cellweight[ti, ],
