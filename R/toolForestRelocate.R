@@ -208,6 +208,48 @@ toolForestRelocate <- function(lu, luCountry, natTarget, vegC) { # nolint: cyclo
       allocate[, , ] <- 0
     }
 
+    # reallocate to prevent primforest expansion
+    primf <- "primforest"
+    nonprimf <- setdiff(nature, primf)
+    for (i in seq_along(l)) {
+      for (y in 2:nyears(l[[i]])) {
+        primfDiff <- l[[i]][, y, primf] - l[[i]][, y - 1, primf]
+        cexp <- getItems(primfDiff, 1)[primfDiff > 0] # cells where primforest is expanding
+        cred <- getItems(primfDiff, 1)[primfDiff < 0] # cells where primforest is reduced
+        totalPrimfExpansion <- sum(primfDiff[cexp, , ])
+        totalPrimfReduction <- sum(primfDiff[cred, , ])
+        stopifnot(totalPrimfExpansion <= -totalPrimfReduction + 10^-8) # no expanding primf on country level
+
+        maxPossiblePrimfExpansion <- pmin(dimSums(l[[i]][cred, y, nonprimf], 3),
+                                          -primfDiff[cred, , ])
+        stopifnot(totalPrimfExpansion <= dimSums(maxPossiblePrimfExpansion, 1) + 10^-8)
+
+        expandPrimf <- maxPossiblePrimfExpansion * min(1, totalPrimfExpansion / dimSums(maxPossiblePrimfExpansion, 1))
+        stopifnot(all.equal(sum(expandPrimf), totalPrimfExpansion))
+
+        reduceNonprimf <- expandPrimf * (l[[i]][cred, y, nonprimf] / dimSums(l[[i]][cred, y, nonprimf], 3))
+        stopifnot(all.equal(dimSums(reduceNonprimf, 3),
+                            expandPrimf,
+                            check.attributes = FALSE))
+
+        expandNonprimf <- collapseDim(primfDiff[cexp, , ]) * (dimSums(reduceNonprimf, 1) / sum(reduceNonprimf))
+        stopifnot(all.equal(dimSums(reduceNonprimf, 1),
+                            dimSums(expandNonprimf, 1),
+                            check.attributes = FALSE))
+
+        li <- l[[i]][, y, ]
+        l[[i]][cred, y, primf] <- l[[i]][cred, y, primf] + expandPrimf
+        l[[i]][cred, y, nonprimf] <- l[[i]][cred, y, nonprimf] - reduceNonprimf
+
+        l[[i]][cexp, y, primf] <- pmin(l[[i]][cexp, y, primf], l[[i]][cexp, y - 1, primf])
+        l[[i]][cexp, y, nonprimf] <- l[[i]][cexp, y, nonprimf] + expandNonprimf
+
+        stopifnot(mrdownscale::toolMaxExpansion(l[[i]][, c(y - 1, y), primf]) == 0,
+                  all.equal(dimSums(li, 3), dimSums(l[[i]][, y, ], 3)),
+                  all.equal(dimSums(li, 1), dimSums(l[[i]][, y, ], 1)))
+      }
+    }
+
     ############################
     ### Check reallocation   ###
     ############################
