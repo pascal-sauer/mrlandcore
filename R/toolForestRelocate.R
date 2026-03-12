@@ -304,8 +304,7 @@ toolForestRelocate <- function(lu, luCountry, natTarget, vegC) { # nolint: cyclo
   }
   .checkCellArea(lu, luCellArea)
 
-  error <- abs(toolCountryFill(dimSums(lu[, , nature], dim = c("x", "y")),
-                               fill = 0, verbosity = 2) - natTarget)
+  error <- abs(dimSums(lu[, , nature], dim = c("x", "y")) - natTarget[getItems(lu, "iso"), , ])
   if (max(error) > 10e-4) {
     country <- rownames(which(error == max(error), arr.ind = TRUE))
     warning("Missmatch between computed and target land use (max error = ", max(error), " in ", country, ")")
