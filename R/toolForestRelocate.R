@@ -208,23 +208,50 @@ toolForestRelocate <- function(lu, luCountry, natTarget, vegC) { # nolint: cyclo
       allocate[, , ] <- 0
     }
 
-    # reallocate to prevent primforest expansion
+    # relocate to prevent primforest expansion
     primf <- "primforest"
     nonprimf <- setdiff(nature, primf)
-    for (i in seq_along(l)) {
+    for (i in which("BRA" == names(l))) {
       for (y in 2:nyears(l[[i]])) {
+        if (mrdownscale::toolMaxExpansion(l[[i]][, c(y - 1, y), primf]) <= 0) {
+          next
+        }
+
+        liBefore <- l[[i]][, y, ]
+        liAfterPrimfReplace <- liBefore
+
         primfDiff <- l[[i]][, y, primf] - l[[i]][, y - 1, primf]
         cexp <- getItems(primfDiff, 1)[primfDiff > 0] # cells where primforest is expanding
         cred <- getItems(primfDiff, 1)[primfDiff < 0] # cells where primforest is reduced
+        if (length(cred) == 0) {
+          # no cells where primf is reduced, so cannot relocate
+          l[[i]][, y, ] <- mrdownscale::toolReplaceExpansion(l[[i]][, c(y - 1, y), ], primf, "secdforest",
+                                                             noteThreshold = 1,
+                                                             warnThreshold = 1)[, 2, ]
+          next
+        }
+
         totalPrimfExpansion <- sum(primfDiff[cexp, , ])
-        totalPrimfReduction <- sum(primfDiff[cred, , ])
-        stopifnot(totalPrimfExpansion <= -totalPrimfReduction + 10^-8) # no expanding primf on country level
 
         maxPossiblePrimfExpansion <- pmin(dimSums(l[[i]][cred, y, nonprimf], 3),
                                           -primfDiff[cred, , ])
-        stopifnot(totalPrimfExpansion <= dimSums(maxPossiblePrimfExpansion, 1) + 10^-8)
 
-        expandPrimf <- maxPossiblePrimfExpansion * min(1, totalPrimfExpansion / dimSums(maxPossiblePrimfExpansion, 1))
+        # amount of primf expansion that cannot be redistributed, convert to secdf
+        missingPrimf <- max(0, totalPrimfExpansion - sum(maxPossiblePrimfExpansion))
+        if (missingPrimf > 0) {
+          stopifnot(all.equal(totalPrimfExpansion, missingPrimf + sum(maxPossiblePrimfExpansion)))
+          primfShare <- l[[i]][cexp, y, primf] / dimSums(l[[i]][cexp, y, primf], 1)
+          l[[i]][cexp, y, primf] <- l[[i]][cexp, y, primf] - primfShare * missingPrimf
+          l[[i]][cexp, y, "secdforest"] <- l[[i]][cexp, y, "secdforest"] + primfShare * missingPrimf
+          stopifnot(all.equal(dimSums(liBefore, 3), dimSums(l[[i]][, y, ], 3)))
+
+          primfDiff <- l[[i]][, y, primf] - l[[i]][, y - 1, primf]
+          totalPrimfExpansion <- sum(primfDiff[cexp, , ])
+          liAfterPrimfReplace <- l[[i]][, y, ]
+        }
+        stopifnot(totalPrimfExpansion <= sum(maxPossiblePrimfExpansion) + 10^-10)
+
+        expandPrimf <- maxPossiblePrimfExpansion * totalPrimfExpansion / dimSums(maxPossiblePrimfExpansion, 1)
         stopifnot(all.equal(sum(expandPrimf), totalPrimfExpansion))
 
         reduceNonprimf <- expandPrimf * (l[[i]][cred, y, nonprimf] / dimSums(l[[i]][cred, y, nonprimf], 3))
@@ -237,16 +264,19 @@ toolForestRelocate <- function(lu, luCountry, natTarget, vegC) { # nolint: cyclo
                             dimSums(expandNonprimf, 1),
                             check.attributes = FALSE))
 
-        li <- l[[i]][, y, ]
         l[[i]][cred, y, primf] <- l[[i]][cred, y, primf] + expandPrimf
         l[[i]][cred, y, nonprimf] <- l[[i]][cred, y, nonprimf] - reduceNonprimf
 
-        l[[i]][cexp, y, primf] <- pmin(l[[i]][cexp, y, primf], l[[i]][cexp, y - 1, primf])
         l[[i]][cexp, y, nonprimf] <- l[[i]][cexp, y, nonprimf] + expandNonprimf
+        l[[i]][cexp, y, primf] <- l[[i]][cexp, y, primf] - dimSums(expandNonprimf, 3)
+
+        # remove primf expansion introduced by numerical issues
+        stopifnot(mrdownscale::toolMaxExpansion(l[[i]][, c(y - 1, y), primf]) < 10^-10)
+        l[[i]][, y, primf] <- pmin(l[[i]][, y, primf], l[[i]][, y - 1, primf])
 
         stopifnot(mrdownscale::toolMaxExpansion(l[[i]][, c(y - 1, y), primf]) == 0,
-                  all.equal(dimSums(li, 3), dimSums(l[[i]][, y, ], 3)),
-                  all.equal(dimSums(li, 1), dimSums(l[[i]][, y, ], 1)))
+                  all.equal(dimSums(liBefore, 3), dimSums(l[[i]][, y, ], 3)),
+                  all.equal(dimSums(liAfterPrimfReplace, 1), dimSums(l[[i]][, y, ], 1)))
       }
     }
 
