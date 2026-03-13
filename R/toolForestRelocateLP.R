@@ -28,13 +28,17 @@ toolForestRelocateCountry <- function(lu, natTarget) {
             dim(natTarget)[1] == 1,
             getItems(lu, 2) == getItems(natTarget, 2),
             getItems(lu, 3) == getItems(natTarget, 3))
-  luTotal <- dimSums(lu, 3)
+
+  cells <- getItems(lu, 1)
   years <- getItems(lu, 2)
+  landtypes <- getItems(lu, 3)
+
+  luTotal <- dimSums(lu, 3)
 
   # lp variables
-  v <- rbind(expand.grid(getItems(lu, 1), getItems(lu, 2), getItems(lu, 3), stringsAsFactors = FALSE),
-             expand.grid("slackPositive", getItems(lu, 2), getItems(lu, 3), stringsAsFactors = FALSE),
-             expand.grid("slackNegative", getItems(lu, 2), getItems(lu, 3), stringsAsFactors = FALSE))
+  v <- rbind(expand.grid(cells, years, landtypes, stringsAsFactors = FALSE),
+             expand.grid("slackPositive", years, landtypes, stringsAsFactors = FALSE),
+             expand.grid("slackNegative", years, landtypes, stringsAsFactors = FALSE))
   colnames(v) <- c("cell", "year", "landtype")
 
   # get lp variable id number
@@ -67,7 +71,7 @@ toolForestRelocateCountry <- function(lu, natTarget) {
     # 1. sum_over_cells(v[, y, landtype]) + v["slackPositive", y, landtype] - v["slackNegative", y, landtype]
     #    == natTarget[, y, landtype]
     # country level: total of each landtype should match natTarget
-    for (landtype in getItems(lu, 3)) {
+    for (landtype in landtypes) {
       newConstraint <- array(dim = c(ncells(lu) + 2, 3))
       newConstraint[, 1] <- iConstraint
       newConstraint[, 2] <- vid(, years[y], landtype)
@@ -84,7 +88,7 @@ toolForestRelocateCountry <- function(lu, natTarget) {
     for (i in seq_len(ncells(lu))) {
       constraints <- rbind(constraints,
                            cbind(iConstraint + i - 1,
-                                 vid(getItems(lu, 1)[i], years[y], ),
+                                 vid(cells[i], years[y], ),
                                  1))
     }
     nConstraintsAdded <- ncells(lu)
@@ -98,10 +102,11 @@ toolForestRelocateCountry <- function(lu, natTarget) {
     # cell level: primf cannot be larger than in previous timestep
     if (y > 1) {
       for (i in seq_len(ncells(lu))) {
+        # TODO fix this constraint - primforest is still growing
         constraints <- rbind(constraints,
                              cbind(iConstraint + i - 1,
-                                   c(vid(getItems(lu, 1)[i], years[y], "primforest"),
-                                     vid(getItems(lu, 1)[i], years[y - 1], "primforest")),
+                                   c(vid(cells[i], years[y], "primforest"),
+                                     vid(cells[i], years[y - 1], "primforest")),
                                    c(1, -1)))
       }
       nConstraintsAdded <- ncells(lu)
