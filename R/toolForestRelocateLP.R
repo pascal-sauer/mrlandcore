@@ -65,7 +65,7 @@ toolForestRelocateCountry <- function(lu, natTarget) {
   # index of the next constraint to add; independent of row number of `constraints`, because that's a dense matrix
   iConstraint <- 1
 
-  for (y in seq_len(nyears(natTarget))) {
+  for (y in seq_along(years)) {
     message(Sys.time(), " - ", years[y])
 
     # 1. sum_over_cells(v[, y, landtype]) + v["slackPositive", y, landtype] - v["slackNegative", y, landtype]
@@ -85,7 +85,7 @@ toolForestRelocateCountry <- function(lu, natTarget) {
     message(Sys.time(), " - 1. added")
     # 2. sum(v[cell, y, ]) == luTotal[, y, ]
     # cell level: total nature (primf+secdf+forestry+other) must match lu
-    for (i in seq_len(ncells(lu))) {
+    for (i in seq_along(cells)) {
       constraints <- rbind(constraints,
                            cbind(iConstraint + i - 1,
                                  vid(cells[i], years[y], ),
@@ -101,15 +101,14 @@ toolForestRelocateCountry <- function(lu, natTarget) {
     # 3. v[cell, y, primf] - v[cell, y - 1, primf] <= 0
     # cell level: primf cannot be larger than in previous timestep
     if (y > 1) {
-      for (i in seq_len(ncells(lu))) {
-        # TODO fix this constraint - primforest is still growing
+      for (i in seq_along(cells)) {
         constraints <- rbind(constraints,
                              cbind(iConstraint + i - 1,
                                    c(vid(cells[i], years[y], "primforest"),
                                      vid(cells[i], years[y - 1], "primforest")),
                                    c(1, -1)))
       }
-      nConstraintsAdded <- ncells(lu)
+      nConstraintsAdded <- length(cells)
 
       constraintsDirection[iConstraint:(iConstraint + nConstraintsAdded - 1)] <- "<="
       rightHandSide[iConstraint:(iConstraint + nConstraintsAdded - 1)] <- 0
@@ -118,9 +117,11 @@ toolForestRelocateCountry <- function(lu, natTarget) {
     }
   }
 
+  stopifnot(nConstraints == iConstraint - 1)
+
   message(Sys.time(), " - starting solve...")
   solution <- lpSolve::lp(direction = "min",
-                          objective.in = ifelse(v$cell == "slack", 1, 0),
+                          objective.in = ifelse(startsWith(v$cell, "slack"), 1, 0),
                           dense.const = constraints,
                           const.dir = constraintsDirection,
                           const.rhs = rightHandSide)
