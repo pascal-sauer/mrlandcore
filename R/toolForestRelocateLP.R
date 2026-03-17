@@ -8,12 +8,6 @@ toolForestRelocateLP <- function(lu, natTarget, vegC) {
   lu <- lu[, , getItems(natTarget, 3)]
   vegC <- vegC[getItems(lu, 1), , ]
 
-  # harmonize total area
-  scalingFactor <- dimSums(luCountry, 3) / dimSums(natTarget, 3)
-  scalingFactor[is.na(scalingFactor)] <- 1
-  stopifnot(0 <= scalingFactor, scalingFactor < 2)
-  natTarget <- natTarget * scalingFactor
-
   out <- list()
   for (i in seq_len(nregions(natTarget))) {
     country <- getItems(natTarget, 1)[i]
@@ -72,7 +66,7 @@ toolForestRelocateCountry <- function(lu, natTarget) {
       newConstraint[, 1] <- iConstraint
       newConstraint[, 2] <- c(v[, y, landtype], slack1[, y, landtype])
       newConstraint[, 3] <- ifelse(newConstraint[, 2] %in% slack1["negative", y, landtype], -1, 1)
-      constraints <- rbind(constraints, newConstraint) # TODO try to collect all constraints in list and rbind once at the end
+      constraints <- rbind(constraints, newConstraint)
 
       constraintsDirection[iConstraint] <- "=="
       rightHandSide[iConstraint] <- natTarget[, y, landtype]
