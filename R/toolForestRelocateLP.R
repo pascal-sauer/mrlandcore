@@ -36,22 +36,19 @@ toolForestRelocateCountry <- function(lu, natTarget) {
   luTotal <- dimSums(lu, 3)
 
   # lp variables
-  v <- rbind(expand.grid(cells, years, landtypes, stringsAsFactors = FALSE),
-             expand.grid("slackPositive", years, landtypes, stringsAsFactors = FALSE),
-             expand.grid("slackNegative", years, landtypes, stringsAsFactors = FALSE))
-  colnames(v) <- c("cell", "year", "landtype")
+  v <- lu
+  v[] <- seq_along(v)
+  nVariables <- length(v)
 
-  # get lp variable id number
-  vid <- function(cell, year, landtype) {
-    if (missing(cell) || is.null(cell)) {
-      return(which(v$year == year & v$landtype == landtype))
-    } else if (missing(landtype) || is.null(landtype)) {
-      return(which(v$cell == cell & v$year == year))
-    } else {
-      return(which(v$cell == cell & v$year == year & v$landtype == landtype))
-    }
-  }
+  slack1 <- new.magpie(c("positive", "negative"), years, landtypes)
+  slack1[] <- nVariables + seq_along(slack1)
+  nVariables <- nVariables + length(slack1)
 
+  # objective
+  objective <- rep(0, nVariables)
+  objective[slack1] <- 1
+
+  # constraints
   nConstraints1 <- nyears(lu) * ndata(lu)
   nConstraints2 <- nyears(lu) * ncells(lu)
   nConstraints3 <- (nyears(lu) - 1) * ncells(lu)
@@ -66,7 +63,6 @@ toolForestRelocateCountry <- function(lu, natTarget) {
   iConstraint <- 1
 
   for (y in seq_along(years)) {
-    message(Sys.time(), " - ", years[y])
 
     # 1. sum_over_cells(v[, y, landtype]) + v["slackPositive", y, landtype] - v["slackNegative", y, landtype]
     #    == natTarget[, y, landtype]
@@ -74,46 +70,42 @@ toolForestRelocateCountry <- function(lu, natTarget) {
     for (landtype in landtypes) {
       newConstraint <- array(dim = c(ncells(lu) + 2, 3))
       newConstraint[, 1] <- iConstraint
-      newConstraint[, 2] <- vid(, years[y], landtype)
-      newConstraint[, 3] <- ifelse(v$cell[newConstraint[, 2]] == "slackNegative", -1, 1)
-      constraints <- rbind(constraints, newConstraint)
+      newConstraint[, 2] <- c(v[, y, landtype], slack1[, y, landtype])
+      newConstraint[, 3] <- ifelse(newConstraint[, 2] %in% slack1["negative", y, landtype], -1, 1)
+      constraints <- rbind(constraints, newConstraint) # TODO try to collect all constraints in list and rbind once at the end
 
       constraintsDirection[iConstraint] <- "=="
       rightHandSide[iConstraint] <- natTarget[, y, landtype]
       iConstraint <- iConstraint + 1
     }
-    message(Sys.time(), " - 1. added")
+
     # 2. sum(v[cell, y, ]) == luTotal[, y, ]
     # cell level: total nature (primf+secdf+forestry+other) must match lu
-    for (i in seq_along(cells)) {
-      constraints <- rbind(constraints,
-                           cbind(iConstraint + i - 1,
-                                 vid(cells[i], years[y], ),
-                                 1))
-    }
+    constraintIds <- rep(iConstraint:(iConstraint + length(cells) - 1),
+                         length(landtypes))
+    variableIds <- as.vector(v[, y, ])
+    stopifnot(length(constraintIds) == length(variableIds))
+    constraints <- rbind(constraints, cbind(constraintIds, variableIds, 1))
+
     nConstraintsAdded <- ncells(lu)
 
     constraintsDirection[iConstraint:(iConstraint + nConstraintsAdded - 1)] <- "=="
     rightHandSide[iConstraint:(iConstraint + nConstraintsAdded - 1)] <- luTotal[, y, ]
     iConstraint <- iConstraint + nConstraintsAdded
-    message(Sys.time(), " - 2. added")
 
     # 3. v[cell, y, primf] - v[cell, y - 1, primf] <= 0
     # cell level: primf cannot be larger than in previous timestep
     if (y > 1) {
-      for (i in seq_along(cells)) {
-        constraints <- rbind(constraints,
-                             cbind(iConstraint + i - 1,
-                                   c(vid(cells[i], years[y], "primforest"),
-                                     vid(cells[i], years[y - 1], "primforest")),
-                                   c(1, -1)))
-      }
+      constraintIds <- rep(iConstraint:(iConstraint + length(cells) - 1), 2)
+      variableIds <- c(v[, y, "primforest"], v[, y - 1, "primforest"])
+      values <- rep(c(1, -1), each = length(cells))
+      stopifnot(length(constraintIds) == length(variableIds), length(variableIds) == length(values))
+      constraints <- rbind(constraints, cbind(constraintIds, variableIds, values))
       nConstraintsAdded <- length(cells)
 
       constraintsDirection[iConstraint:(iConstraint + nConstraintsAdded - 1)] <- "<="
       rightHandSide[iConstraint:(iConstraint + nConstraintsAdded - 1)] <- 0
       iConstraint <- iConstraint + nConstraintsAdded
-      message(Sys.time(), " - 3. added")
     }
   }
 
@@ -121,20 +113,14 @@ toolForestRelocateCountry <- function(lu, natTarget) {
 
   message(Sys.time(), " - starting solve...")
   solution <- lpSolve::lp(direction = "min",
-                          objective.in = ifelse(startsWith(v$cell, "slack"), 1, 0),
+                          objective.in = objective,
                           dense.const = constraints,
                           const.dir = constraintsDirection,
                           const.rhs = rightHandSide)
   message(Sys.time(), " - solved")
 
-  solution <- data.frame(x.y.iso = v$cell,
-                         year = v$year,
-                         landuse = v$landtype,
-                         value = solution$solution)
-  solution <- solution[!startsWith(solution$x.y.iso, "slack"), ]
-  solution <- as.magpie(solution, spatial = "x.y.iso")
-  getItems(solution, 1, raw = TRUE) <- gsub("_", ".", getItems(solution, 1))
+  out <- v
+  out[] <- solution$solution[v]
 
-  message(Sys.time(), " - done")
-  return(solution)
+  return(out)
 }
