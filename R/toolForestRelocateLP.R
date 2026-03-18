@@ -38,15 +38,21 @@ toolForestRelocateCountry <- function(lu, natTarget) {
   slack1[] <- nVariables + seq_along(slack1)
   nVariables <- nVariables + length(slack1)
 
+  slack2 <- add_dimension(lu, 3.2, "slack", c("positive", "negative"))
+  slack2[] <- nVariables + seq_along(slack2)
+  nVariables <- nVariables + length(slack2)
+
   # objective
   objective <- rep(0, nVariables)
-  objective[slack1] <- 1
+  objective[slack1] <- 100 * length(slack2) / length(slack1)
+  objective[slack2] <- 1
 
   # constraints
   nConstraints1 <- nyears(lu) * ndata(lu)
   nConstraints2 <- nyears(lu) * ncells(lu)
   nConstraints3 <- (nyears(lu) - 1) * ncells(lu)
-  nConstraints <- nConstraints1 + nConstraints2 + nConstraints3
+  nConstraints4 <- length(lu)
+  nConstraints <- nConstraints1 + nConstraints2 + nConstraints3 + nConstraints4
 
   # dense constraint matrix: constraint number, column/variable id number, value
   constraints <- array(dim = c(0, 3))
@@ -101,6 +107,19 @@ toolForestRelocateCountry <- function(lu, natTarget) {
       rightHandSide[iConstraint:(iConstraint + nConstraintsAdded - 1)] <- 0
       iConstraint <- iConstraint + nConstraintsAdded
     }
+
+    # 4. v[cell, y, landtype] + slack2[cell, y, landtype] == lu[cell, y, landtype]
+    # cell level: keep lu spatial information as much as possible
+    nConstraintsAdded <- length(cells) * length(landtypes)
+    constraintIds <- rep(iConstraint:(iConstraint + nConstraintsAdded - 1), 3)
+    variableIds <- c(v[, y, ], slack2[, y, "positive"], slack2[, y, "negative"])
+    stopifnot(length(constraintIds) == length(variableIds))
+    values <- ifelse(variableIds %in% slack2[, y, "negative"], -1, 1)
+    constraints <- rbind(constraints, cbind(constraintIds, variableIds, values))
+
+    constraintsDirection[iConstraint:(iConstraint + nConstraintsAdded - 1)] <- "=="
+    rightHandSide[iConstraint:(iConstraint + nConstraintsAdded - 1)] <- lu[, y, ] # TODO is the order correct?
+    iConstraint <- iConstraint + nConstraintsAdded
   }
 
   stopifnot(nConstraints == iConstraint - 1)
