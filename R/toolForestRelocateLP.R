@@ -1,10 +1,7 @@
 toolForestRelocateLP <- function(lu, natTarget, vegC) {
-  luCountry <- dimSums(lu, dim = c("x", "y"))
-  stopifnot(sameDims(luCountry, natTarget),
-            setequal(getItems(lu, 1), getItems(vegC, 1)),
+  stopifnot(setequal(getItems(lu, 1), getItems(vegC, 1)),
             identical(getYears(vegC), getYears(natTarget)),
             ndata(vegC) == 1)
-  luCountry <- luCountry[getItems(natTarget, 1), , getItems(natTarget, 3)]
   lu <- lu[, , getItems(natTarget, 3)]
   vegC <- vegC[getItems(lu, 1), , ]
 
