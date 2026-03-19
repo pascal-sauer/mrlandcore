@@ -61,79 +61,73 @@ toolForestRelocateCountry <- function(lu, natTarget, recursion = TRUE, tolerance
 
     out <- mbind(toolForestRelocateCountry(lu[firstHalf, , ], natTarget = intermediateTarget["firstHalf", , ]),
                  toolForestRelocateCountry(lu[secondHalf, , ], natTarget = intermediateTarget["secondHalf", , ]))
+  } else {
+    # dense constraint matrix: constraint number, column/variable id number, value
+    constraints <- array(dim = c(0, 3))
+    rightHandSide <- rep(NA, nConstraints)
+    constraintsDirection <- rep(NA, nConstraints)
 
-    stopifnot(abs(dimSums(out, 1) - natTarget) < tolerance) # target is reached
-    stopifnot(abs(dimSums(out, 3) - dimSums(lu, 3)) < tolerance) # land area per grid cell is unchanged
-    stopifnot(toolMaxExpansion(out[, , "primforest"]) < tolerance) # no primforest expansion
+    # index of the next constraint to add; independent of row number of `constraints`, because that's a dense matrix
+    iConstraint <- 1
 
-    return(out)
-  }
+    for (y in seq_along(years)) {
 
-  # dense constraint matrix: constraint number, column/variable id number, value
-  constraints <- array(dim = c(0, 3))
-  rightHandSide <- rep(NA, nConstraints)
-  constraintsDirection <- rep(NA, nConstraints)
+      # 1. sum_over_cells(v[, y, landtype]) + v["slackPositive", y, landtype] - v["slackNegative", y, landtype]
+      #    == natTarget[, y, landtype]
+      # country level: total of each landtype should match natTarget
+      for (landtype in landtypes) {
+        newConstraint <- array(dim = c(ncells(lu) + 2, 3))
+        newConstraint[, 1] <- iConstraint
+        newConstraint[, 2] <- c(v[, y, landtype], slack1[, y, landtype])
+        newConstraint[, 3] <- ifelse(newConstraint[, 2] %in% slack1["negative", y, landtype], -1, 1)
+        constraints <- rbind(constraints, newConstraint)
 
-  # index of the next constraint to add; independent of row number of `constraints`, because that's a dense matrix
-  iConstraint <- 1
+        constraintsDirection[iConstraint] <- "=="
+        rightHandSide[iConstraint] <- natTarget[, y, landtype]
+        iConstraint <- iConstraint + 1
+      }
 
-  for (y in seq_along(years)) {
+      # 2. sum(v[cell, y, ]) == luTotal[, y, ]
+      # cell level: total nature (primf+secdf+forestry+other) must match lu
+      constraintIds <- rep(iConstraint:(iConstraint + length(cells) - 1),
+                           length(landtypes))
+      variableIds <- as.vector(v[, y, ])
+      stopifnot(length(constraintIds) == length(variableIds))
+      constraints <- rbind(constraints, cbind(constraintIds, variableIds, 1))
 
-    # 1. sum_over_cells(v[, y, landtype]) + v["slackPositive", y, landtype] - v["slackNegative", y, landtype]
-    #    == natTarget[, y, landtype]
-    # country level: total of each landtype should match natTarget
-    for (landtype in landtypes) {
-      newConstraint <- array(dim = c(ncells(lu) + 2, 3))
-      newConstraint[, 1] <- iConstraint
-      newConstraint[, 2] <- c(v[, y, landtype], slack1[, y, landtype])
-      newConstraint[, 3] <- ifelse(newConstraint[, 2] %in% slack1["negative", y, landtype], -1, 1)
-      constraints <- rbind(constraints, newConstraint)
+      nConstraintsAdded <- ncells(lu)
 
-      constraintsDirection[iConstraint] <- "=="
-      rightHandSide[iConstraint] <- natTarget[, y, landtype]
-      iConstraint <- iConstraint + 1
-    }
-
-    # 2. sum(v[cell, y, ]) == luTotal[, y, ]
-    # cell level: total nature (primf+secdf+forestry+other) must match lu
-    constraintIds <- rep(iConstraint:(iConstraint + length(cells) - 1),
-                         length(landtypes))
-    variableIds <- as.vector(v[, y, ])
-    stopifnot(length(constraintIds) == length(variableIds))
-    constraints <- rbind(constraints, cbind(constraintIds, variableIds, 1))
-
-    nConstraintsAdded <- ncells(lu)
-
-    constraintsDirection[iConstraint:(iConstraint + nConstraintsAdded - 1)] <- "=="
-    rightHandSide[iConstraint:(iConstraint + nConstraintsAdded - 1)] <- luTotal[, y, ]
-    iConstraint <- iConstraint + nConstraintsAdded
-
-    # 3. v[cell, y, primf] - v[cell, y - 1, primf] <= 0
-    # cell level: primf cannot be larger than in previous timestep
-    if (y > 1) {
-      constraintIds <- rep(iConstraint:(iConstraint + length(cells) - 1), 2)
-      variableIds <- c(v[, y, "primforest"], v[, y - 1, "primforest"])
-      values <- rep(c(1, -1), each = length(cells))
-      stopifnot(length(constraintIds) == length(variableIds), length(variableIds) == length(values))
-      constraints <- rbind(constraints, cbind(constraintIds, variableIds, values))
-      nConstraintsAdded <- length(cells)
-
-      constraintsDirection[iConstraint:(iConstraint + nConstraintsAdded - 1)] <- "<="
-      rightHandSide[iConstraint:(iConstraint + nConstraintsAdded - 1)] <- 0
+      constraintsDirection[iConstraint:(iConstraint + nConstraintsAdded - 1)] <- "=="
+      rightHandSide[iConstraint:(iConstraint + nConstraintsAdded - 1)] <- luTotal[, y, ]
       iConstraint <- iConstraint + nConstraintsAdded
+
+      # 3. v[cell, y, primf] - v[cell, y - 1, primf] <= 0
+      # cell level: primf cannot be larger than in previous timestep
+      if (y > 1) {
+        constraintIds <- rep(iConstraint:(iConstraint + length(cells) - 1), 2)
+        variableIds <- c(v[, y, "primforest"], v[, y - 1, "primforest"])
+        values <- rep(c(1, -1), each = length(cells))
+        stopifnot(length(constraintIds) == length(variableIds), length(variableIds) == length(values))
+        constraints <- rbind(constraints, cbind(constraintIds, variableIds, values))
+        nConstraintsAdded <- length(cells)
+
+        constraintsDirection[iConstraint:(iConstraint + nConstraintsAdded - 1)] <- "<="
+        rightHandSide[iConstraint:(iConstraint + nConstraintsAdded - 1)] <- 0
+        iConstraint <- iConstraint + nConstraintsAdded
+      }
     }
+
+    stopifnot(nConstraints == iConstraint - 1)
+
+    solution <- lpSolve::lp(direction = "min",
+                            objective.in = objective,
+                            dense.const = constraints,
+                            const.dir = constraintsDirection,
+                            const.rhs = rightHandSide)
+
+    out <- v
+    out[] <- solution$solution[v]
   }
-
-  stopifnot(nConstraints == iConstraint - 1)
-
-  solution <- lpSolve::lp(direction = "min",
-                          objective.in = objective,
-                          dense.const = constraints,
-                          const.dir = constraintsDirection,
-                          const.rhs = rightHandSide)
-
-  out <- v
-  out[] <- solution$solution[v]
 
   stopifnot(abs(dimSums(out, 1) - natTarget) < tolerance) # target is reached
   stopifnot(abs(dimSums(out, 3) - dimSums(lu, 3)) < tolerance) # land area per grid cell is unchanged
