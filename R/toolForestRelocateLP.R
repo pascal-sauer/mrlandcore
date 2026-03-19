@@ -17,11 +17,12 @@ toolForestRelocateLP <- function(lu, natTarget, vegC) {
   message("done")
 }
 
-toolForestRelocateCountry <- function(lu, natTarget) {
-  stopifnot(length(getItems(lu, "iso")) == 1,
+toolForestRelocateCountry <- function(lu, natTarget, recursion = TRUE, tolerance = 1e-8) {
+  stopifnot(identical(getItems(lu, 1), c("firstHalf", "secondHalf")) || length(getItems(lu, "iso")) == 1,
             dim(natTarget)[1] == 1,
             getItems(lu, 2) == getItems(natTarget, 2),
-            getItems(lu, 3) == getItems(natTarget, 3))
+            getItems(lu, 3) == getItems(natTarget, 3),
+            toolMaxExpansion(natTarget[, , "primforest"]) < tolerance)
 
   cells <- getItems(lu, 1)
   years <- getItems(lu, 2)
@@ -47,6 +48,26 @@ toolForestRelocateCountry <- function(lu, natTarget) {
   nConstraints2 <- nyears(lu) * ncells(lu)
   nConstraints3 <- (nyears(lu) - 1) * ncells(lu)
   nConstraints <- nConstraints1 + nConstraints2 + nConstraints3
+
+  if (recursion && nVariables + nConstraints > 1e4) {
+    firstHalf <- cells[seq_len(length(cells) / 2)]
+    secondHalf <- setdiff(cells, firstHalf)
+    stopifnot(setequal(c(firstHalf, secondHalf), cells))
+
+    luCoarse <- mbind(setItems(dimSums(lu[firstHalf, , ], 1), 1, "firstHalf"),
+                      setItems(dimSums(lu[secondHalf, , ], 1), 1, "secondHalf"))
+    stopifnot(all.equal(dimSums(luCoarse, 1), dimSums(lu, 1)))
+    intermediateTarget <- toolForestRelocateCountry(luCoarse, natTarget)
+
+    out <- mbind(toolForestRelocateCountry(lu[firstHalf, , ], natTarget = intermediateTarget["firstHalf", , ]),
+                 toolForestRelocateCountry(lu[secondHalf, , ], natTarget = intermediateTarget["secondHalf", , ]))
+
+    stopifnot(abs(dimSums(out, 1) - natTarget) < tolerance) # target is reached
+    stopifnot(abs(dimSums(out, 3) - dimSums(lu, 3)) < tolerance) # land area per grid cell is unchanged
+    stopifnot(toolMaxExpansion(out[, , "primforest"]) < tolerance) # no primforest expansion
+
+    return(out)
+  }
 
   # dense constraint matrix: constraint number, column/variable id number, value
   constraints <- array(dim = c(0, 3))
@@ -105,16 +126,18 @@ toolForestRelocateCountry <- function(lu, natTarget) {
 
   stopifnot(nConstraints == iConstraint - 1)
 
-  message(Sys.time(), " - starting solve...")
   solution <- lpSolve::lp(direction = "min",
                           objective.in = objective,
                           dense.const = constraints,
                           const.dir = constraintsDirection,
                           const.rhs = rightHandSide)
-  message(Sys.time(), " - solved")
 
   out <- v
   out[] <- solution$solution[v]
+
+  stopifnot(abs(dimSums(out, 1) - natTarget) < tolerance) # target is reached
+  stopifnot(abs(dimSums(out, 3) - dimSums(lu, 3)) < tolerance) # land area per grid cell is unchanged
+  stopifnot(toolMaxExpansion(out[, , "primforest"]) < tolerance) # no primforest expansion
 
   return(out)
 }
