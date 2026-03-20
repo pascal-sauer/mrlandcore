@@ -129,7 +129,7 @@ toolForestRelocateCountry <- function(lu, natTarget, recursion = TRUE, tolerance
       constraints <- rbind(constraints, cbind(constraintIds, variableIds, values))
 
       constraintsDirection[iConstraint:(iConstraint + nConstraintsAdded - 1)] <- "=="
-      rightHandSide[iConstraint:(iConstraint + nConstraintsAdded - 1)] <- lu[, y, ] # TODO is the order correct?
+      rightHandSide[iConstraint:(iConstraint + nConstraintsAdded - 1)] <- lu[, y, ]
       iConstraint <- iConstraint + nConstraintsAdded
     }
 
