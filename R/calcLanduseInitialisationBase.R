@@ -83,6 +83,8 @@ calcLanduseInitialisationBase <- function(cells = "lpjcell", selectyears = "past
   luCountry <- toolCountryFill(dimSums(lu, dim = c("x", "y")),
                                fill = 0, verbosity = 2)
   natTarget <- .natureTarget(luCountry, forestArea)
+  xTarget <- mbind(luCountry[, , getItems(natTarget, 3), invert = TRUE],
+                   natTarget)[getItems(lu, "iso"), , getItems(lu, 3)]
 
   vegC  <- calcOutput("LPJmL_new", subtype = "vegc", stage = "smoothed",
                       version = "LPJmL4_for_MAgPIE_44ac93de", climatetype = "GSWP3-W5E5:historical",
@@ -93,12 +95,17 @@ calcLanduseInitialisationBase <- function(cells = "lpjcell", selectyears = "past
   cyears <- intersect(getYears(vegC, as.integer = TRUE), selectyears)
   vegC <- vegC[, cyears, ]
 
+  lu <- toolScaleConstantArea(lu)
+  lu <- toolReplaceExpansion(lu, "primforest", "secdforest")
+
   stopifnot(mrdownscale::toolMaxExpansion(lu[, , "primforest"]) == 0)
   stopifnot(mrdownscale::toolMaxExpansion(luCountry[, , "primforest"]) == 0)
-  natTarget <- mrdownscale::toolReplaceExpansion(natTarget[, , "primforest"], "secdforest")
-  stopifnot(mrdownscale::toolMaxExpansion(natTarget[, , "primforest"]) == 0)
 
-  lu2 <- toolForestRelocate(lu = lu, luCountry = luCountry, natTarget = natTarget, vegC = vegC)
+  xTarget <- toolScaleConstantArea(xTarget)
+  xTarget <- mrdownscale::toolReplaceExpansion(xTarget, "primforest", "secdforest")
+  stopifnot(mrdownscale::toolMaxExpansion(xTarget[, , "primforest"]) == 0)
+
+  lu2 <- toolForestRelocateLP(x = lu, xTarget = xTarget, vegC = vegC)
 
   stopifnot(mrdownscale::toolMaxExpansion(lu2[, , "primforest"]) == 0)
 

@@ -1,42 +1,46 @@
-toolForestRelocateLP <- function(lu, natTarget, vegC) {
-  stopifnot(setequal(getItems(lu, 1), getItems(vegC, 1)),
-            identical(getYears(vegC), getYears(natTarget)),
+toolForestRelocateLP <- function(x, xTarget, vegC) {
+  stopifnot(setequal(getItems(x, 1), getItems(vegC, 1)),
+            identical(getYears(vegC), getYears(xTarget)),
+            getItems(x, 3) == getItems(xTarget, 3),
             ndata(vegC) == 1)
-  lu <- lu[, , getItems(natTarget, 3)]
-  vegC <- vegC[getItems(lu, 1), , ]
+  vegC <- vegC[getItems(x, 1), , ]
 
   out <- list()
-  for (i in seq_len(nregions(natTarget))) {
-    country <- getItems(natTarget, 1)[i]
-    message(i, "/", nregions(natTarget), " ", country)
-    out[country] <- toolForestRelocateCountry(lu[country, , ], natTarget[country, , ])
+  for (i in seq_len(nregions(xTarget))) {
+    country <- getItems(xTarget, 1)[i]
+    message(Sys.time(), "\t", i, "/", nregions(xTarget), " ", country)
+    out[[country]] <- toolForestRelocateCountry(x[country, , ], xTarget[country, , ])
   }
   message("done")
 }
 
-toolForestRelocateCountry <- function(lu, natTarget, recursion = TRUE, tolerance = 1e-8) {
-  stopifnot(identical(getItems(lu, 1), c("firstHalf", "secondHalf")) || length(getItems(lu, "iso")) == 1,
-            dim(natTarget)[1] == 1,
-            getItems(lu, 2) == getItems(natTarget, 2),
-            getItems(lu, 3) == getItems(natTarget, 3),
-            toolMaxExpansion(natTarget[, , "primforest"]) < tolerance)
+toolForestRelocateCountry <- function(x, xTarget, recursion = TRUE, tolerance = 1e-8) {
+  stopifnot(identical(getItems(x, 1), c("firstHalf", "secondHalf")) || length(getItems(x, "iso")) == 1,
+            dim(xTarget)[1] == 1,
+            getItems(x, 2) == getItems(xTarget, 2),
+            getItems(x, 3) == getItems(xTarget, 3),
+            toolMaxExpansion(xTarget[, , "primforest"]) < tolerance)
 
-  cells <- getItems(lu, 1)
-  years <- getItems(lu, 2)
-  landtypes <- getItems(lu, 3)
+  # area constant over time
+  stopifnot(max(abs(dimSums(x[, 1, ], 3) - dimSums(x[, -1, ], 3))) < tolerance,
+            max(abs(dimSums(xTarget[, 1, ], 3) - dimSums(xTarget[, -1, ], 3))) < tolerance)
 
-  luTotal <- dimSums(lu, 3)
+  cells <- getItems(x, 1)
+  years <- getItems(x, 2)
+  landtypes <- getItems(x, 3)
+
+  xTotal <- dimSums(x, 3)
 
   # lp variables
-  v <- lu
-  v[] <- seq_along(v)
+  v <- x
+  v[] <- seq_along(v) # value of v[cell, year, landtype] is the variable id of that cell+year+landtype combination
   nVariables <- length(v)
 
   slack1 <- new.magpie(c("positive", "negative"), years, landtypes)
   slack1[] <- nVariables + seq_along(slack1)
   nVariables <- nVariables + length(slack1)
 
-  slack2 <- add_dimension(lu, 3.2, "slack", c("positive", "negative"))
+  slack2 <- add_dimension(x, 3.2, "slack", c("positive", "negative"))
   slack2[] <- nVariables + seq_along(slack2)
   nVariables <- nVariables + length(slack2)
 
@@ -46,10 +50,10 @@ toolForestRelocateCountry <- function(lu, natTarget, recursion = TRUE, tolerance
   objective[slack2] <- 1
 
   # constraints
-  nConstraints1 <- nyears(lu) * ndata(lu)
-  nConstraints2 <- nyears(lu) * ncells(lu)
-  nConstraints3 <- (nyears(lu) - 1) * ncells(lu)
-  nConstraints4 <- length(lu)
+  nConstraints1 <- nyears(x) * ndata(x)
+  nConstraints2 <- nyears(x) * ncells(x)
+  nConstraints3 <- (nyears(x) - 1) * ncells(x)
+  nConstraints4 <- length(x)
   nConstraints <- nConstraints1 + nConstraints2 + nConstraints3 + nConstraints4
 
   if (recursion && nVariables + nConstraints > 1e4) {
@@ -57,13 +61,13 @@ toolForestRelocateCountry <- function(lu, natTarget, recursion = TRUE, tolerance
     secondHalf <- setdiff(cells, firstHalf)
     stopifnot(setequal(c(firstHalf, secondHalf), cells))
 
-    luCoarse <- mbind(setItems(dimSums(lu[firstHalf, , ], 1), 1, "firstHalf"),
-                      setItems(dimSums(lu[secondHalf, , ], 1), 1, "secondHalf"))
-    stopifnot(all.equal(dimSums(luCoarse, 1), dimSums(lu, 1)))
-    intermediateTarget <- toolForestRelocateCountry(luCoarse, natTarget)
+    xCoarse <- mbind(setItems(dimSums(x[firstHalf, , ], 1), 1, "firstHalf"),
+                     setItems(dimSums(x[secondHalf, , ], 1), 1, "secondHalf"))
+    stopifnot(all.equal(dimSums(xCoarse, 1), dimSums(x, 1)))
+    intermediateTarget <- toolForestRelocateCountry(xCoarse, xTarget)
 
-    out <- mbind(toolForestRelocateCountry(lu[firstHalf, , ], natTarget = intermediateTarget["firstHalf", , ]),
-                 toolForestRelocateCountry(lu[secondHalf, , ], natTarget = intermediateTarget["secondHalf", , ]))
+    out <- mbind(toolForestRelocateCountry(x[firstHalf, , ], xTarget = intermediateTarget["firstHalf", , ]),
+                 toolForestRelocateCountry(x[secondHalf, , ], xTarget = intermediateTarget["secondHalf", , ]))
   } else {
     # dense constraint matrix: constraint number, column/variable id number, value
     constraints <- array(dim = c(0, 3))
@@ -76,32 +80,32 @@ toolForestRelocateCountry <- function(lu, natTarget, recursion = TRUE, tolerance
     for (y in seq_along(years)) {
 
       # 1. sum_over_cells(v[, y, landtype]) + v["slackPositive", y, landtype] - v["slackNegative", y, landtype]
-      #    == natTarget[, y, landtype]
-      # country level: total of each landtype should match natTarget
+      #    == xTarget[, y, landtype]
+      # country level: total of each landtype should match xTarget
       for (landtype in landtypes) {
-        newConstraint <- array(dim = c(ncells(lu) + 2, 3))
+        newConstraint <- array(dim = c(ncells(x) + 2, 3))
         newConstraint[, 1] <- iConstraint
         newConstraint[, 2] <- c(v[, y, landtype], slack1[, y, landtype])
         newConstraint[, 3] <- ifelse(newConstraint[, 2] %in% slack1["negative", y, landtype], -1, 1)
         constraints <- rbind(constraints, newConstraint)
 
         constraintsDirection[iConstraint] <- "=="
-        rightHandSide[iConstraint] <- natTarget[, y, landtype]
+        rightHandSide[iConstraint] <- xTarget[, y, landtype]
         iConstraint <- iConstraint + 1
       }
 
-      # 2. sum(v[cell, y, ]) == luTotal[, y, ]
-      # cell level: total nature (primf+secdf+forestry+other) must match lu
+      # 2. sum(v[cell, y, ]) == xTotal[, y, ]
+      # cell level: total nature (primf+secdf+forestry+other) must match x
       constraintIds <- rep(iConstraint:(iConstraint + length(cells) - 1),
                            length(landtypes))
       variableIds <- as.vector(v[, y, ])
       stopifnot(length(constraintIds) == length(variableIds))
       constraints <- rbind(constraints, cbind(constraintIds, variableIds, 1))
 
-      nConstraintsAdded <- ncells(lu)
+      nConstraintsAdded <- ncells(x)
 
       constraintsDirection[iConstraint:(iConstraint + nConstraintsAdded - 1)] <- "=="
-      rightHandSide[iConstraint:(iConstraint + nConstraintsAdded - 1)] <- luTotal[, y, ]
+      rightHandSide[iConstraint:(iConstraint + nConstraintsAdded - 1)] <- xTotal[, y, ]
       iConstraint <- iConstraint + nConstraintsAdded
 
       # 3. v[cell, y, primf] - v[cell, y - 1, primf] <= 0
@@ -119,8 +123,8 @@ toolForestRelocateCountry <- function(lu, natTarget, recursion = TRUE, tolerance
         iConstraint <- iConstraint + nConstraintsAdded
       }
 
-      # 4. v[cell, y, landtype] + slack2[cell, y, landtype] == lu[cell, y, landtype]
-      # cell level: keep lu spatial information as much as possible
+      # 4. v[cell, y, landtype] + slack2[cell, y, landtype] == x[cell, y, landtype]
+      # cell level: keep x spatial information as much as possible
       nConstraintsAdded <- length(cells) * length(landtypes)
       constraintIds <- rep(iConstraint:(iConstraint + nConstraintsAdded - 1), 3)
       variableIds <- c(v[, y, ], slack2[, y, "positive"], slack2[, y, "negative"])
@@ -129,7 +133,7 @@ toolForestRelocateCountry <- function(lu, natTarget, recursion = TRUE, tolerance
       constraints <- rbind(constraints, cbind(constraintIds, variableIds, values))
 
       constraintsDirection[iConstraint:(iConstraint + nConstraintsAdded - 1)] <- "=="
-      rightHandSide[iConstraint:(iConstraint + nConstraintsAdded - 1)] <- lu[, y, ]
+      rightHandSide[iConstraint:(iConstraint + nConstraintsAdded - 1)] <- x[, y, ]
       iConstraint <- iConstraint + nConstraintsAdded
     }
 
@@ -145,12 +149,12 @@ toolForestRelocateCountry <- function(lu, natTarget, recursion = TRUE, tolerance
     out[] <- solution$solution[v]
   }
 
-  maxdiff <- max(abs(dimSums(out, 1) - natTarget))
+  maxdiff <- max(abs(dimSums(out, 1) - xTarget))
   if (maxdiff > tolerance) {
-    warning("natTarget was not reached, maxdiff: ", maxdiff)
+    warning("xTarget was not reached, maxdiff: ", maxdiff)
   }
 
-  stopifnot(abs(dimSums(out, 3) - dimSums(lu, 3)) < tolerance) # land area per grid cell is unchanged
+  stopifnot(abs(dimSums(out, 3) - dimSums(x, 3)) < tolerance) # land area per grid cell is unchanged
   stopifnot(toolMaxExpansion(out[, , "primforest"]) < tolerance) # no primforest expansion
 
   return(out)
