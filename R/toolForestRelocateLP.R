@@ -46,8 +46,8 @@ toolForestRelocateCountry <- function(x, xTarget, recursion = TRUE, tolerance = 
 
   # objective
   objective <- rep(0, nVariables)
-  objective[slack1] <- 100 * length(slack2) / length(slack1)
-  objective[slack2] <- 1
+  objective[slack1] <- 100 / length(slack1)
+  objective[slack2] <- 1 / length(slack2)
 
   # constraints
   nConstraints1 <- nyears(x) * ndata(x)
