@@ -1,4 +1,4 @@
-toolForestRelocateLP <- function(x, xTarget, vegC) {
+toolForestRelocate2 <- function(x, xTarget, vegC) {
   stopifnot(setequal(getItems(x, 1), getItems(vegC, 1)),
             identical(getYears(vegC), getYears(xTarget)),
             getItems(x, 3) == getItems(xTarget, 3),
@@ -9,12 +9,12 @@ toolForestRelocateLP <- function(x, xTarget, vegC) {
   for (i in seq_len(nregions(xTarget))) {
     country <- getItems(xTarget, 1)[i]
     message(Sys.time(), "\t", i, "/", nregions(xTarget), " ", country)
-    out[[country]] <- toolForestRelocateCountry(x[country, , ], xTarget[country, , ])
+    out[[country]] <- toolForestRelocateCountryNLP(x[country, , ], xTarget[country, , ])
   }
   message("done")
 }
 
-toolForestRelocateCountry <- function(x, xTarget, recursion = TRUE, tolerance = 1e-8) {
+toolForestRelocateCountryLP <- function(x, xTarget, recursion = TRUE, tolerance = 1e-8) {
   stopifnot(identical(getItems(x, 1), c("firstHalf", "secondHalf")) || length(getItems(x, "iso")) == 1,
             dim(xTarget)[1] == 1,
             getItems(x, 2) == getItems(xTarget, 2),
@@ -64,11 +64,15 @@ toolForestRelocateCountry <- function(x, xTarget, recursion = TRUE, tolerance = 
     xCoarse <- mbind(setItems(dimSums(x[firstHalf, , ], 1), 1, "firstHalf"),
                      setItems(dimSums(x[secondHalf, , ], 1), 1, "secondHalf"))
     stopifnot(all.equal(dimSums(xCoarse, 1), dimSums(x, 1)))
-    intermediateTarget <- toolForestRelocateCountry(xCoarse, xTarget)
+    intermediateTarget <- toolForestRelocateCountryLP(xCoarse, xTarget)
 
-    out <- mbind(toolForestRelocateCountry(x[firstHalf, , ], xTarget = intermediateTarget["firstHalf", , ]),
-                 toolForestRelocateCountry(x[secondHalf, , ], xTarget = intermediateTarget["secondHalf", , ]))
+    out <- mbind(toolForestRelocateCountryLP(x[firstHalf, , ], xTarget = intermediateTarget["firstHalf", , ]),
+                 toolForestRelocateCountryLP(x[secondHalf, , ], xTarget = intermediateTarget["secondHalf", , ]))
   } else {
+    if (!getItems(xTarget, 1) %in% c("firstHalf", "secondHalf")
+        && !identical(getItems(x, 1), c("firstHalf", "secondHalf"))) {
+      warning("no recursion necessary for ", getItems(xTarget, 1))
+    }
     # dense constraint matrix: constraint number, column/variable id number, value
     constraints <- array(dim = c(0, 3))
     rightHandSide <- rep(NA, nConstraints)
@@ -147,6 +151,121 @@ toolForestRelocateCountry <- function(x, xTarget, recursion = TRUE, tolerance = 
 
     out <- v
     out[] <- solution$solution[v]
+  }
+
+  maxdiff <- max(abs(dimSums(out, 1) - xTarget))
+  if (maxdiff > tolerance) {
+    warning("xTarget was not reached, maxdiff: ", maxdiff)
+  }
+
+  stopifnot(abs(dimSums(out, 3) - dimSums(x, 3)) < tolerance) # land area per grid cell is unchanged
+  stopifnot(toolMaxExpansion(out[, , "primforest"]) < tolerance) # no primforest expansion
+
+  return(out)
+}
+
+toolForestRelocateCountryNLP <- function(x, xTarget, recursionThreshold = 500, tolerance = 1e-8) {
+  stopifnot(identical(getItems(x, 1), c("firstHalf", "secondHalf")) || length(getItems(x, "iso")) == 1,
+            dim(xTarget)[1] == 1,
+            getItems(x, 2) == getItems(xTarget, 2),
+            getItems(x, 3) == getItems(xTarget, 3),
+            toolMaxExpansion(xTarget[, , "primforest"]) < tolerance)
+
+  # area constant over time
+  stopifnot(max(abs(dimSums(x[, 1, ], 3) - dimSums(x[, -1, ], 3))) < tolerance,
+            max(abs(dimSums(xTarget[, 1, ], 3) - dimSums(xTarget[, -1, ], 3))) < tolerance)
+
+  if (length(x) > recursionThreshold) {
+    # TODO instead of cutting in half, calculate into how many pieces to cut to get under the given threshold
+    # TODO parallelize?
+    cells <- getItems(x, 1)
+    firstHalf <- cells[seq_len(length(cells) / 2)]
+    secondHalf <- setdiff(cells, firstHalf)
+    stopifnot(setequal(c(firstHalf, secondHalf), cells))
+
+    xCoarse <- mbind(setItems(dimSums(x[firstHalf, , ], 1), 1, "firstHalf"),
+                     setItems(dimSums(x[secondHalf, , ], 1), 1, "secondHalf"))
+    stopifnot(all.equal(dimSums(xCoarse, 1), dimSums(x, 1)))
+    intermediateTarget <- toolForestRelocateCountryLP(xCoarse, xTarget)
+
+    out <- mbind(toolForestRelocateCountryLP(x[firstHalf, , ], xTarget = intermediateTarget["firstHalf", , ]),
+                 toolForestRelocateCountryLP(x[secondHalf, , ], xTarget = intermediateTarget["secondHalf", , ]))
+  } else {
+    if (!getItems(xTarget, 1) %in% c("firstHalf", "secondHalf")
+        && !identical(getItems(x, 1), c("firstHalf", "secondHalf"))) {
+      warning("no recursion necessary for ", getItems(xTarget, 1))
+    }
+
+    # objective
+    objective <- function(xx) {
+      return(sum((xx - x)^2))
+    }
+
+    objectiveGradient <- function(xx) {
+      return(2 * (xx - x))
+    }
+
+    # constraints
+    xTotal <- dimSums(x, 3)
+    equalZero <- function(xx) {
+      # 1. sum_over_cells(v[, y, landtype]) == xTarget[, y, landtype]
+      # country level: total of each landtype should match xTarget
+      # 2. sum(v[cell, y, ]) == xTotal[, y, ]
+      # cell level: total nature (primf+secdf+forestry+other) must match x
+      return(c(dimSums(xx, 1) - xTarget, # 1.
+               dimSums(xx, 3) - xTotal)) # 2.
+    }
+
+    nyrs <- nyears(x)
+    yearsExceptFirst <- getYears(x[, -1, ])
+    lessThanZero <- function(xx) {
+      # 3. v[cell, y, primf] - v[cell, y - 1, primf] <= 0
+      # cell level: primf cannot be larger than in previous timestep
+      return(xx[, -1, "primforest"] - setYears(xx[, -nyrs, "primforest"], yearsExceptFirst))
+    }
+
+
+    # gradient/derivative of v[cell, y, primf] - v[cell, y - 1, primf] <= 0
+    # is independent of input, so can calculate statically
+    # is the same for all cells & only landtype == primf, so simplified: v[y] - v[y - 1] <= 0
+    # 1 if differentiationVariable (matrix column) == y
+    # -1 if differentiationVariable (matrix column) == y - 1
+    # 0 otherwise
+    # yearsDf <- data.frame(factorOne = rep(yearsExceptFirst, each = nyrs),
+    #                       factorMinusOne = rep(getYears(x[, -nyrs, ]), each = nyrs),
+    #                       differentiationVariable = getYears(x))
+    # lessThanZeroGradient <- addDim(x, dim = 2.1,
+    #                                item = paste0(yearsDf$factorOne, yearsDf$factorMinusOne))
+    # lessThanZeroGradient[] <- 0
+    # lessThanZeroGradient[, yearsDf$factorOne == yearsDf$differentiationVariable, "primforest"] <- 1
+    # lessThanZeroGradient[, yearsDf$factorMinusOne == yearsDf$differentiationVariable, "primforest"] <- -1
+
+    xIdx <- x
+    xIdx[] <- seq_along(x)
+    lessThanZeroGradient <- matrix(data = 0,
+                                   nrow = ncells(x) * (nyrs - 1),
+                                   ncol = length(x))
+    for (i in seq_len(nyrs - 1)) {
+      lessThanZeroGradient[i, as.vector(xIdx[, i + 1, "primforest"])] <- 1
+      lessThanZeroGradient[i, as.vector(xIdx[, i, "primforest"])] <- -1
+    }
+
+    magpieWrapper <- function(f) {
+      return(f)
+      return(function(x) as.vector(f(as.magpie(x))))
+    }
+
+    solution <- nloptr::nloptr(x0 = x,
+                               eval_f = magpieWrapper(objective),
+                               eval_grad_f = magpieWrapper(objectiveGradient),
+                               eval_g_eq = magpieWrapper(equalZero),
+                               eval_g_ineq = magpieWrapper(lessThanZero),
+                               eval_jac_g_ineq = magpieWrapper(function(xx) lessThanZeroGradient),
+                               opts = list(algorithm = "NLOPT_LD_MMA",
+                                           xtol_rel = tolerance))
+    message(solution$message)
+    browser()
+    out <- solution # TODO
   }
 
   maxdiff <- max(abs(dimSums(out, 1) - xTarget))

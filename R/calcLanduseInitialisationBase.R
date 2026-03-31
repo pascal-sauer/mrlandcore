@@ -105,7 +105,7 @@ calcLanduseInitialisationBase <- function(cells = "lpjcell", selectyears = "past
   xTarget <- mrdownscale::toolReplaceExpansion(xTarget, "primforest", "secdforest")
   stopifnot(mrdownscale::toolMaxExpansion(xTarget[, , "primforest"]) == 0)
 
-  lu2 <- toolForestRelocateLP(x = lu, xTarget = xTarget, vegC = vegC)
+  lu2 <- toolForestRelocate2(x = lu, xTarget = xTarget, vegC = vegC)
 
   stopifnot(mrdownscale::toolMaxExpansion(lu2[, , "primforest"]) == 0)
 
