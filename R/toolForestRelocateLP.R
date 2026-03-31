@@ -216,6 +216,10 @@ toolForestRelocateCountryNLP <- function(x, xTarget, recursionThreshold = 500, t
                dimSums(xx, 3) - xTotal)) # 2.
     }
 
+    equalZeroGradient <- matrix(data = 1,
+                                nrow = length(xTarget) + length(xTotal),
+                                ncol = length(x))
+
     nyrs <- nyears(x)
     yearsExceptFirst <- getYears(x[, -1, ])
     lessThanZero <- function(xx) {
@@ -224,6 +228,8 @@ toolForestRelocateCountryNLP <- function(x, xTarget, recursionThreshold = 500, t
       return(xx[, -1, "primforest"] - setYears(xx[, -nyrs, "primforest"], yearsExceptFirst))
     }
 
+    xIdx <- x
+    xIdx[] <- seq_along(x)
 
     # gradient/derivative of v[cell, y, primf] - v[cell, y - 1, primf] <= 0
     # is independent of input, so can calculate statically
@@ -231,17 +237,6 @@ toolForestRelocateCountryNLP <- function(x, xTarget, recursionThreshold = 500, t
     # 1 if differentiationVariable (matrix column) == y
     # -1 if differentiationVariable (matrix column) == y - 1
     # 0 otherwise
-    # yearsDf <- data.frame(factorOne = rep(yearsExceptFirst, each = nyrs),
-    #                       factorMinusOne = rep(getYears(x[, -nyrs, ]), each = nyrs),
-    #                       differentiationVariable = getYears(x))
-    # lessThanZeroGradient <- addDim(x, dim = 2.1,
-    #                                item = paste0(yearsDf$factorOne, yearsDf$factorMinusOne))
-    # lessThanZeroGradient[] <- 0
-    # lessThanZeroGradient[, yearsDf$factorOne == yearsDf$differentiationVariable, "primforest"] <- 1
-    # lessThanZeroGradient[, yearsDf$factorMinusOne == yearsDf$differentiationVariable, "primforest"] <- -1
-
-    xIdx <- x
-    xIdx[] <- seq_along(x)
     lessThanZeroGradient <- matrix(data = 0,
                                    nrow = ncells(x) * (nyrs - 1),
                                    ncol = length(x))
@@ -251,17 +246,22 @@ toolForestRelocateCountryNLP <- function(x, xTarget, recursionThreshold = 500, t
     }
 
     magpieWrapper <- function(f) {
-      return(f)
-      return(function(x) as.vector(f(as.magpie(x))))
+      wrappedF <- function(xx) {
+        xxIn <- x
+        xxIn[] <- xx
+        return(as.vector(f(xxIn)))
+      }
+      return(wrappedF)
     }
 
     solution <- nloptr::nloptr(x0 = x,
                                eval_f = magpieWrapper(objective),
                                eval_grad_f = magpieWrapper(objectiveGradient),
                                eval_g_eq = magpieWrapper(equalZero),
+                               eval_jac_g_eq = function(...) equalZeroGradient,
                                eval_g_ineq = magpieWrapper(lessThanZero),
-                               eval_jac_g_ineq = magpieWrapper(function(xx) lessThanZeroGradient),
-                               opts = list(algorithm = "NLOPT_LD_MMA",
+                               eval_jac_g_ineq = function(...) lessThanZeroGradient,
+                               opts = list(algorithm = "NLOPT_LD_SLSQP",
                                            xtol_rel = tolerance))
     message(solution$message)
     browser()
