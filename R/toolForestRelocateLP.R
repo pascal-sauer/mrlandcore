@@ -206,30 +206,54 @@ toolForestRelocateCountryNLP <- function(x, xTarget, recursionThreshold = 500, t
     }
 
     # constraints
-    xTotal <- dimSums(x, 3)
-    equalZero <- function(xx) {
+    equalZero1 <- function(xx) {
       # 1. sum_over_cells(v[, y, landtype]) == xTarget[, y, landtype]
       # country level: total of each landtype should match xTarget
-      # 2. sum(v[cell, y, ]) == xTotal[, y, ]
-      # cell level: total nature (primf+secdf+forestry+other) must match x
-      return(c(dimSums(xx, 1) - xTarget, # 1.
-               dimSums(xx, 3) - xTotal)) # 2.
+      return(dimSums(xx, 1) - xTarget)
     }
 
-    equalZeroGradient <- matrix(data = 1,
-                                nrow = length(xTarget) + length(xTotal),
-                                ncol = length(x))
+    xTotal <- dimSums(x, 3)
+    equalZero2 <- function(xx){
+      # 2. sum(v[cell, y, ]) == xTotal[, y, ]
+      # cell level: total nature (primf+secdf+forestry+other) must match x
+      return(dimSums(xx, 3) - xTotal)
+    }
 
+    equalZero <- function(xx) {
+      return(c(equalZero1(xx), equalZero2(xx)))
+    }
+
+    xId <- x
+    xId[] <- seq_along(x)
     nyrs <- nyears(x)
+    ncell <- ncells(x)
+
+    equalZero1Gradient <- matrix(data = 0,
+                                 nrow = length(equalZero1(x)),
+                                 ncol = length(x))
+    for (i in seq_len(nrow(equalZero1Gradient))) {
+      yearId <- ((i - 1) %% nyrs) + 1
+      landtypeId <- ceiling(i / nyrs)
+      equalZero1Gradient[i, xId[, yearId, landtypeId]] <- 1
+    }
+
+    equalZero2Gradient <- matrix(data = 0,
+                                 nrow = length(equalZero2(x)),
+                                 ncol = length(x))
+    for (i in seq_len(nrow(equalZero2Gradient))) {
+      cellId <- ((i - 1) %% ncell) + 1
+      yearId <- ceiling(i / ncell)
+      equalZero2Gradient[i, xId[cellId, yearId, ]] <- 1
+    }
+
+    equalZeroGradient <- rbind(equalZero1Gradient, equalZero2Gradient)
+
     yearsExceptFirst <- getYears(x[, -1, ])
     lessThanZero <- function(xx) {
       # 3. v[cell, y, primf] - v[cell, y - 1, primf] <= 0
       # cell level: primf cannot be larger than in previous timestep
       return(xx[, -1, "primforest"] - setYears(xx[, -nyrs, "primforest"], yearsExceptFirst))
     }
-
-    xIdx <- x
-    xIdx[] <- seq_along(x)
 
     # gradient/derivative of v[cell, y, primf] - v[cell, y - 1, primf] <= 0
     # is independent of input, so can calculate statically
@@ -238,11 +262,14 @@ toolForestRelocateCountryNLP <- function(x, xTarget, recursionThreshold = 500, t
     # -1 if differentiationVariable (matrix column) == y - 1
     # 0 otherwise
     lessThanZeroGradient <- matrix(data = 0,
-                                   nrow = ncells(x) * (nyrs - 1),
+                                   nrow = ncell * (nyrs - 1),
                                    ncol = length(x))
+
     for (i in seq_len(nyrs - 1)) {
-      lessThanZeroGradient[i, as.vector(xIdx[, i + 1, "primforest"])] <- 1
-      lessThanZeroGradient[i, as.vector(xIdx[, i, "primforest"])] <- -1
+      for (j in seq_len(ncell)) {
+        lessThanZeroGradient[j + ncell * (i - 1), xId[j, i + 1, "primforest"]] <- 1
+        lessThanZeroGradient[j + ncell * (i - 1), xId[j, i, "primforest"]] <- -1
+      }
     }
 
     magpieWrapper <- function(f) {
@@ -253,7 +280,7 @@ toolForestRelocateCountryNLP <- function(x, xTarget, recursionThreshold = 500, t
       }
       return(wrappedF)
     }
-
+    message("starting nloptr ", Sys.time())
     solution <- nloptr::nloptr(x0 = x,
                                eval_f = magpieWrapper(objective),
                                eval_grad_f = magpieWrapper(objectiveGradient),
