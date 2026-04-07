@@ -220,7 +220,9 @@ toolForestRelocateCountryNLP <- function(x, xTarget, recursionThreshold = 500, t
     }
 
     equalZero <- function(xx) {
-      return(c(equalZero1(xx), equalZero2(xx)))
+      result <- c(equalZero1(xx), equalZero2(xx))
+      message("equalZero max(abs(result)) ", max(abs(result)))
+      return(result)
     }
 
     xId <- x
@@ -252,7 +254,9 @@ toolForestRelocateCountryNLP <- function(x, xTarget, recursionThreshold = 500, t
     lessThanZero <- function(xx) {
       # 3. v[cell, y, primf] - v[cell, y - 1, primf] <= 0
       # cell level: primf cannot be larger than in previous timestep
-      return(xx[, -1, "primforest"] - setYears(xx[, -nyrs, "primforest"], yearsExceptFirst))
+      result <- xx[, -1, "primforest"] - setYears(xx[, -nyrs, "primforest"], yearsExceptFirst)
+      message("lessThanZero max(result) ", max(result))
+      return(result)
     }
 
     # gradient/derivative of v[cell, y, primf] - v[cell, y - 1, primf] <= 0
@@ -284,13 +288,19 @@ toolForestRelocateCountryNLP <- function(x, xTarget, recursionThreshold = 500, t
     solution <- nloptr::nloptr(x0 = x,
                                eval_f = magpieWrapper(objective),
                                eval_grad_f = magpieWrapper(objectiveGradient),
+                               lb = rep(0, length(x)),
                                eval_g_eq = magpieWrapper(equalZero),
                                eval_jac_g_eq = function(...) equalZeroGradient,
                                eval_g_ineq = magpieWrapper(lessThanZero),
                                eval_jac_g_ineq = function(...) lessThanZeroGradient,
                                opts = list(algorithm = "NLOPT_LD_SLSQP",
-                                           xtol_rel = tolerance))
+                                           ftol_abs = tolerance, # stop when objective value change < tolerance
+                                           tol_constraints_ineq = rep(tolerance, length(lessThanZero(x))),
+                                           tol_constraints_eq = rep(tolerance, length(equalZero(x))),
+                                           print_level = 1))
     message(solution$message)
+    xSol <- x
+    xSol[] <- solution$solution
     browser()
     out <- solution # TODO
   }
