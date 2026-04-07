@@ -284,8 +284,11 @@ toolForestRelocateCountryNLP <- function(x, xTarget, recursionThreshold = 500, t
       }
       return(wrappedF)
     }
+
+    x0 <- xTarget / dimSums(xTarget, 3) * dimSums(x, 3)
+
     message("starting nloptr ", Sys.time())
-    solution <- nloptr::nloptr(x0 = as.vector(x),
+    solution <- nloptr::nloptr(x0 = as.vector(x0),
                                eval_f = magpieWrapper(objective),
                                eval_grad_f = magpieWrapper(objectiveGradient),
                                lb = rep(0, length(x)),
@@ -293,20 +296,15 @@ toolForestRelocateCountryNLP <- function(x, xTarget, recursionThreshold = 500, t
                                eval_jac_g_eq = function(xx) equalZeroGradient,
                                eval_g_ineq = magpieWrapper(lessThanZero),
                                eval_jac_g_ineq = function(xx) lessThanZeroGradient,
-                               opts = list(algorithm = "NLOPT_LD_AUGLAG_EQ",
-                                           local_opts = list(
-                                             algorithm = "NLOPT_LD_SLSQP",
-                                             xtol_rel = 1e-9,
-                                             maxeval = 1000
-                                           ),
+                               opts = list(algorithm = "NLOPT_LD_SLSQP",
                                            ftol_abs = tolerance, # stop when objective value change < tolerance
                                            tol_constraints_ineq = rep(tolerance, length(lessThanZero(x))),
                                            tol_constraints_eq = rep(tolerance, length(equalZero(x))),
                                            print_level = 1))
+    message("nloptr done ", Sys.time())
     message(solution$message)
     out <- x
     out[] <- solution$solution
-    browser()
   }
 
   maxdiff <- max(abs(dimSums(out, 1) - xTarget))
