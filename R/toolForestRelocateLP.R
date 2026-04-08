@@ -164,18 +164,19 @@ toolForestRelocateCountryLP <- function(x, xTarget, recursion = TRUE, tolerance 
   return(out)
 }
 
-toolForestRelocateCountryNLP <- function(x, xTarget, recursionThreshold = 500, tolerance = 1e-8) {
+toolForestRelocateCountryNLP <- function(x, xTarget, recursionThreshold = 600, tolerance = 1e-8) {
+  message("toolForestRelocateCountryNLP ncells=", ncells(x))
   stopifnot(identical(getItems(x, 1), c("firstHalf", "secondHalf")) || length(getItems(x, "iso")) == 1,
             dim(xTarget)[1] == 1,
             getItems(x, 2) == getItems(xTarget, 2),
             getItems(x, 3) == getItems(xTarget, 3),
             toolMaxExpansion(xTarget[, , "primforest"]) < tolerance)
 
-  # area constant over time
-  stopifnot(max(abs(dimSums(x[, 1, ], 3) - dimSums(x[, -1, ], 3))) < tolerance,
-            max(abs(dimSums(xTarget[, 1, ], 3) - dimSums(xTarget[, -1, ], 3))) < tolerance)
+  stopifnot(`x area is not constant over time` = max(abs(dimSums(x[, 1, ], 3) - dimSums(x[, -1, ], 3))) < tolerance,
+            `xTarget area is not constant over time` = max(abs(dimSums(xTarget[, 1, ], 3)
+                                                               - dimSums(xTarget[, -1, ], 3))) < tolerance)
 
-  if (length(x) > recursionThreshold) {
+  if (ncells(x) > recursionThreshold) {
     # TODO instead of cutting in half, calculate into how many pieces to cut to get under the given threshold
     # TODO parallelize?
     cells <- getItems(x, 1)
@@ -186,10 +187,16 @@ toolForestRelocateCountryNLP <- function(x, xTarget, recursionThreshold = 500, t
     xCoarse <- mbind(setItems(dimSums(x[firstHalf, , ], 1), 1, "firstHalf"),
                      setItems(dimSums(x[secondHalf, , ], 1), 1, "secondHalf"))
     stopifnot(all.equal(dimSums(xCoarse, 1), dimSums(x, 1)))
-    intermediateTarget <- toolForestRelocateCountryLP(xCoarse, xTarget)
+    intermediateTarget <- toolForestRelocateCountryNLP(xCoarse, xTarget,
+                                                       recursionThreshold = recursionThreshold,
+                                                       tolerance = tolerance)
 
-    out <- mbind(toolForestRelocateCountryLP(x[firstHalf, , ], xTarget = intermediateTarget["firstHalf", , ]),
-                 toolForestRelocateCountryLP(x[secondHalf, , ], xTarget = intermediateTarget["secondHalf", , ]))
+    out <- mbind(toolForestRelocateCountryNLP(x[firstHalf, , ], xTarget = intermediateTarget["firstHalf", , ],
+                                              recursionThreshold = recursionThreshold,
+                                              tolerance = tolerance),
+                 toolForestRelocateCountryNLP(x[secondHalf, , ], xTarget = intermediateTarget["secondHalf", , ],
+                                              recursionThreshold = recursionThreshold,
+                                              tolerance = tolerance))
   } else {
     # objective
     objective <- function(xx) {
