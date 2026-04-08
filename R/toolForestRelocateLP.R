@@ -166,7 +166,9 @@ toolForestRelocateCountryLP <- function(x, xTarget, recursion = TRUE, tolerance 
 
 toolForestRelocateCountryNLP <- function(x, xTarget, recursionThreshold = 600, tolerance = 1e-8) {
   # TODO decide which message calls to keep
-  message("toolForestRelocateCountryNLP ncells=", ncells(x))
+  message("toolForestRelocateCountryNLP ", getItems(xTarget, 1),
+          " ncells=", ncells(x),
+          " length=", length(x))
   stopifnot(all(startsWith(getItems(x, 1), "part")) || length(getItems(x, "iso")) == 1,
             dim(xTarget)[1] == 1,
             getItems(x, 2) == getItems(xTarget, 2),
@@ -224,7 +226,7 @@ toolForestRelocateCountryNLP <- function(x, xTarget, recursionThreshold = 600, t
 
     equalZero <- function(xx) {
       result <- c(equalZero1(xx), equalZero2(xx))
-      message("equalZero max(abs(result)) ", max(abs(result)))
+      # message("equalZero max(abs(result)) ", max(abs(result)))
       return(result)
     }
 
@@ -258,7 +260,7 @@ toolForestRelocateCountryNLP <- function(x, xTarget, recursionThreshold = 600, t
       # 3. v[cell, y, primf] - v[cell, y - 1, primf] <= 0
       # cell level: primf cannot be larger than in previous timestep
       result <- xx[, -1, "primforest"] - setYears(xx[, -nyrs, "primforest"], yearsExceptFirst)
-      message("lessThanZero max(result) ", max(result))
+      # message("lessThanZero max(result) ", max(result))
       return(result)
     }
 
@@ -303,9 +305,12 @@ toolForestRelocateCountryNLP <- function(x, xTarget, recursionThreshold = 600, t
                                            ftol_abs = tolerance, # stop when objective value change < tolerance
                                            tol_constraints_ineq = rep(tolerance, length(lessThanZero(x))),
                                            tol_constraints_eq = rep(tolerance, length(equalZero(x))),
-                                           print_level = 1))
+                                           print_level = 0))
     message("nloptr done ", Sys.time())
-    message(solution$message)
+    expectedMessage <- "NLOPT_XTOL_REACHED: Optimization stopped because xtol_rel or xtol_abs (above) was reached."
+    if (solution$message != expectedMessage) {
+      warning(solution$message)
+    }
     out <- x
     out[] <- solution$solution
   }
