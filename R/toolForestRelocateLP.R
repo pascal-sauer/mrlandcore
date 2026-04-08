@@ -165,8 +165,9 @@ toolForestRelocateCountryLP <- function(x, xTarget, recursion = TRUE, tolerance 
 }
 
 toolForestRelocateCountryNLP <- function(x, xTarget, recursionThreshold = 600, tolerance = 1e-8) {
+  # TODO decide which message calls to keep
   message("toolForestRelocateCountryNLP ncells=", ncells(x))
-  stopifnot(identical(getItems(x, 1), c("firstHalf", "secondHalf")) || length(getItems(x, "iso")) == 1,
+  stopifnot(all(getItems(x, 1) %in% letters) || length(getItems(x, "iso")) == 1,
             dim(xTarget)[1] == 1,
             getItems(x, 2) == getItems(xTarget, 2),
             getItems(x, 3) == getItems(xTarget, 3),
@@ -177,26 +178,26 @@ toolForestRelocateCountryNLP <- function(x, xTarget, recursionThreshold = 600, t
                                                                - dimSums(xTarget[, -1, ], 3))) < tolerance)
 
   if (ncells(x) > recursionThreshold) {
-    # TODO instead of cutting in half, calculate into how many pieces to cut to get under the given threshold
-    # TODO parallelize?
     cells <- getItems(x, 1)
-    firstHalf <- cells[seq_len(length(cells) / 2)]
-    secondHalf <- setdiff(cells, firstHalf)
-    stopifnot(setequal(c(firstHalf, secondHalf), cells))
+    nParts <- ceiling(length(cells) / recursionThreshold)
+    parts <- split(cells, cut(seq_along(cells), nParts))
+    stopifnot(setequal(Reduce(union, parts), cells))
 
-    xCoarse <- mbind(setItems(dimSums(x[firstHalf, , ], 1), 1, "firstHalf"),
-                     setItems(dimSums(x[secondHalf, , ], 1), 1, "secondHalf"))
+    xCoarse <- do.call(mbind, lapply(seq_len(nParts), function(i) {
+      return(setItems(dimSums(x[parts[[i]], , ], 1), 1, letters[i]))
+    }))
     stopifnot(all.equal(dimSums(xCoarse, 1), dimSums(x, 1)))
+
     intermediateTarget <- toolForestRelocateCountryNLP(xCoarse, xTarget,
                                                        recursionThreshold = recursionThreshold,
                                                        tolerance = tolerance)
 
-    out <- mbind(toolForestRelocateCountryNLP(x[firstHalf, , ], xTarget = intermediateTarget["firstHalf", , ],
-                                              recursionThreshold = recursionThreshold,
-                                              tolerance = tolerance),
-                 toolForestRelocateCountryNLP(x[secondHalf, , ], xTarget = intermediateTarget["secondHalf", , ],
-                                              recursionThreshold = recursionThreshold,
-                                              tolerance = tolerance))
+    # TODO parallelize?
+    out <- do.call(mbind, lapply(seq_len(nParts), function(i) {
+      return(toolForestRelocateCountryNLP(x[parts[[i]], , ], xTarget = intermediateTarget[letters[i], , ],
+                                          recursionThreshold = recursionThreshold,
+                                          tolerance = tolerance))
+    }))
   } else {
     # objective
     objective <- function(xx) {
