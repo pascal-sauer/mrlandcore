@@ -191,11 +191,6 @@ toolForestRelocateCountryNLP <- function(x, xTarget, recursionThreshold = 500, t
     out <- mbind(toolForestRelocateCountryLP(x[firstHalf, , ], xTarget = intermediateTarget["firstHalf", , ]),
                  toolForestRelocateCountryLP(x[secondHalf, , ], xTarget = intermediateTarget["secondHalf", , ]))
   } else {
-    if (!getItems(xTarget, 1) %in% c("firstHalf", "secondHalf")
-        && !identical(getItems(x, 1), c("firstHalf", "secondHalf"))) {
-      warning("no recursion necessary for ", getItems(xTarget, 1))
-    }
-
     # objective
     objective <- function(xx) {
       return(sum((xx - x)^2))
