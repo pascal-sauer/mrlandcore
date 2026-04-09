@@ -213,7 +213,7 @@ toolForestRelocateCountryNLP <- function(x, xTarget, recursionThreshold = 600, t
     # constraints
     equalZero1 <- function(xx) {
       # 1. sum_over_cells(v[, y, landtype]) == xTarget[, y, landtype]
-      # country level: total of each landtype should match xTarget
+      # country level: total of each landtype must match xTarget
       return(dimSums(xx, 1) - xTarget)
     }
 
@@ -307,19 +307,16 @@ toolForestRelocateCountryNLP <- function(x, xTarget, recursionThreshold = 600, t
                                            tol_constraints_eq = rep(tolerance, length(equalZero(x))),
                                            print_level = 0))
     message("nloptr done ", Sys.time())
-    expectedMessage <- "NLOPT_XTOL_REACHED: Optimization stopped because xtol_rel or xtol_abs (above) was reached."
-    if (solution$message != expectedMessage) {
+
+    if (!grepl("NLOPT_[XF]TOL_REACHED: Optimization stopped because [xf]tol_rel or [xf]tol_abs .above. was reached",
+               solution$message)) {
       warning(solution$message)
     }
     out <- x
     out[] <- solution$solution
   }
 
-  maxdiff <- max(abs(dimSums(out, 1) - xTarget))
-  if (maxdiff > tolerance) {
-    warning("xTarget was not reached, maxdiff: ", maxdiff)
-  }
-
+  stopifnot(abs(dimSums(out, 1) - xTarget) < tolerance) # aggregated out == xTarget
   stopifnot(abs(dimSums(out, 3) - dimSums(x, 3)) < tolerance) # land area per grid cell is unchanged
   stopifnot(toolMaxExpansion(out[, , "primforest"]) < tolerance) # no primforest expansion
 
