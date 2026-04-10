@@ -166,7 +166,8 @@ toolForestRelocateCountryLP <- function(x, xTarget, recursion = TRUE, tolerance 
 
 toolForestRelocateCountryNLP <- function(x, xTarget, recursionThreshold = 600, tolerance = 1e-8) {
   # TODO decide which message calls to keep
-  message("toolForestRelocateCountryNLP ", getItems(xTarget, 1),
+  message(Sys.time(),
+          " toolForestRelocateCountryNLP ", getItems(xTarget, 1),
           " ncells=", ncells(x),
           " length=", length(x))
   stopifnot(all(startsWith(getItems(x, 1), "part")) || length(getItems(x, "iso")) == 1,
@@ -183,6 +184,7 @@ toolForestRelocateCountryNLP <- function(x, xTarget, recursionThreshold = 600, t
     cells <- getItems(x, 1)
     nParts <- ceiling(length(cells) / recursionThreshold)
     parts <- split(cells, cut(seq_along(cells), nParts))
+    # parts <- split(cells, cut(sample(seq_along(cells), length(cells)), nParts)) # shuffle before splitting
     stopifnot(setequal(Reduce(union, parts), cells))
 
     xCoarse <- do.call(mbind, lapply(seq_len(nParts), function(i) {
@@ -192,13 +194,13 @@ toolForestRelocateCountryNLP <- function(x, xTarget, recursionThreshold = 600, t
 
     intermediateTarget <- toolForestRelocateCountryNLP(xCoarse, xTarget,
                                                        recursionThreshold = recursionThreshold,
-                                                       tolerance = tolerance)
+                                                       tolerance = tolerance / nParts)
 
     # TODO parallelize?
     out <- do.call(mbind, lapply(seq_len(nParts), function(i) {
       return(toolForestRelocateCountryNLP(x[parts[[i]], , ], xTarget = intermediateTarget[paste0("part", i), , ],
                                           recursionThreshold = recursionThreshold,
-                                          tolerance = tolerance))
+                                          tolerance = tolerance / nParts))
     }))
   } else {
     # objective
@@ -292,7 +294,6 @@ toolForestRelocateCountryNLP <- function(x, xTarget, recursionThreshold = 600, t
 
     x0 <- xTarget / dimSums(xTarget, 3) * dimSums(x, 3)
 
-    message("starting nloptr ", Sys.time())
     solution <- nloptr::nloptr(x0 = as.vector(x0),
                                eval_f = magpieWrapper(objective),
                                eval_grad_f = magpieWrapper(objectiveGradient),
